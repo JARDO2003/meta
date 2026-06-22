@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SYSCOHADA Pro — COMEO AI v4</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400&family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<link rel="stylesheet" href="as.css">
+</head>
+<body>
+
+<!-- AUTH OVERLAY -->
+<div id="authOverlay">
+  <div class="auth-box">
+    <div class="auth-emblem">
+      <div class="logo-big">COMEO AI V4</div>
+      <div class="ai-badge">Expert Comptable SYSCOHADA · Conforme OHADA 2023</div>
+    </div>
+    <div class="auth-tabs">
+      <div class="auth-tab active" id="tab-login" onclick="switchTab('login')">Connexion</div>
+      <div class="auth-tab" id="tab-register" onclick="switchTab('register')">Créer un profil</div>
+    </div>
+    <div id="form-login" class="auth-form">
+  <div class="af-field"><label class="af-label">Email</label><input class="af-input" type="email" id="l-email" placeholder="contact@sotra.ci"></div>
+  <div class="af-field"><label class="af-label">Mot de passe</label><input class="af-input" type="password" id="l-pass" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()"></div>
+  <div class="auth-err" id="l-err"></div>
+  <button class="auth-btn" onclick="doLogin()">⚡ Se connecter</button>
+  <div style="text-align:center;margin-top:10px">
+    <a href="#" style="font-size:12px;color:var(--warm);opacity:.7" onclick="doForgotPassword()">Attention, ne jamais oublier son mot de pass</a>
+  </div>
+</div>
+   <div id="form-register" class="auth-form" style="display:none">
+  <div class="af-field"><label class="af-label">Nom de l'entreprise</label><input class="af-input" type="text" id="r-company" placeholder="ex: SOTRA SARL"></div>
+  <div class="af-field"><label class="af-label">Email professionnel</label><input class="af-input" type="email" id="r-email" placeholder="contact@sotra.ci"></div>
+  <div class="af-field"><label class="af-label">N° Compte ventes</label><input class="af-input" type="text" id="r-compte701" placeholder="701" value="701"></div>
+  <div class="af-field"><label class="af-label">Exercice comptable</label><input class="af-input" type="text" id="r-exercice" placeholder="2024" value="2024" maxlength="4"></div>
+  <div class="af-field"><label class="af-label">Mot de passe (min 6 car.)</label><input class="af-input" type="password" id="r-pass" placeholder="Minimum 6 caractères"></div>
+  <div class="auth-err" id="r-err"></div>
+  <button class="auth-btn" onclick="doRegister()">✓ Créer mon profil</button>
+  <p class="auth-trial-note">🎁 12 heures d'essai gratuit · puis 15&nbsp;000 FCFA/mois via Wave</p>
+</div>
+  </div>
+</div>
+
+<!-- PAYWALL PREMIUM WAVE -->
+<div id="premiumPaywall" class="premium-paywall" style="display:none">
+  <div class="premium-paywall-inner">
+
+    <!-- Étape 1 & 2 : Paiement + confirmation -->
+    <div id="paywallPaymentForm">
+      <div class="premium-emblem">⭐ COMEO Premium</div>
+      <h2 class="premium-title">Abonnement mensuel</h2>
+      <p class="premium-desc" id="paywallTrialInfo">Essai gratuit 12 h à la création du compte, puis abonnement requis.</p>
+      <div class="premium-price">15&nbsp;000 <span>FCFA / mois</span></div>
+
+      <p class="premium-step-label">Étape 1 — Payer avec Wave</p>
+      <button type="button" class="premium-wave-btn" onclick="openWavePayment()">
+        <span class="wave-icon">W</span> Payer 15 000 FCFA avec Wave
+      </button>
+      <p class="premium-wave-hint" id="wavePayHint" style="display:none">✅ Wave ouvert — effectuez le paiement puis revenez ici.</p>
+
+      <div class="premium-divider">Étape 2 — Confirmer votre paiement</div>
+      <p class="premium-form-desc">Remplissez exactement les informations utilisées sur Wave :</p>
+      <input type="text" id="wavePayerName" class="premium-code-input" placeholder="Nom complet (comme sur Wave)" autocomplete="name" maxlength="80">
+      <input type="tel" id="wavePayerNumber" class="premium-code-input" placeholder="Numéro Wave (ex: 07 XX XX XX XX)" autocomplete="tel" maxlength="20">
+      <div class="auth-err" id="paymentFormErr"></div>
+      <button type="button" class="premium-activate-btn" id="confirmWaveBtn" onclick="confirmWavePaymentManual()">
+        ✓ Confirmer mon paiement
+      </button>
+      <button type="button" class="premium-logout-btn" onclick="doLogout()">Se déconnecter</button>
+    </div>
+
+    <!-- Étape 3 : Merci — en attente validation -->
+    <div id="paywallSuccessPanel" class="paywall-success-panel" style="display:none">
+      <div class="paywall-stickers">🎉 ✅ 🙏 ⏳ 💙</div>
+      <h2 class="premium-title">Merci !</h2>
+      <p class="paywall-success-text">
+        Votre demande a bien été enregistrée.<br><br>
+        <strong>Veuillez patienter 12 à 24 heures</strong> pendant que nous vérifions votre paiement Wave.<br><br>
+        Vous recevrez l'accès Premium dès validation par notre équipe.
+      </p>
+      <div class="paywall-success-box">
+        <span>⏰</span> Délai habituel : 12 h – 24 h<br>
+        <span>📱</span> Conservez votre reçu Wave<br>
+        <span>✨</span> Merci pour votre confiance !
+      </div>
+      <button type="button" class="premium-logout-btn" onclick="doLogout()">Fermer et se déconnecter</button>
+    </div>
+
+  </div>
+</div>
+
+<!-- EXPORT MODAL -->
+<div id="exportModal" class="modal-overlay" style="display:none">
+  <div class="modal-box" style="width:560px">
+    <div class="modal-title">⎙ Exporter un document</div>
+    <div class="modal-sub">Choisissez le document, le format et les options d'export</div>
+
+    <!-- Document à exporter -->
+    <div style="margin-bottom:14px">
+      <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);margin-bottom:6px">Document</div>
+      <select id="export-doc-type" style="width:100%;background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;font-family:var(--font-body);outline:none" onchange="updateExportOptions()">
+        <option value="journal">Journal général</option>
+        <option value="balance">Balance générale</option>
+        <option value="grandlivre">Grand Livre</option>
+        <option value="bilan">Bilan</option>
+        <option value="resultat">Compte de résultat</option>
+        <option value="tresorerie">Trésorerie</option>
+        <option value="factures">Liste des factures</option>
+        <option value="facture_single">Facture (impression unitaire)</option>
+      </select>
+    </div>
+
+    <!-- Filtre journal (affiché seulement si journal sélectionné) -->
+    <div id="export-journal-filter" style="margin-bottom:14px">
+      <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);margin-bottom:6px">Filtrer par journal</div>
+      <select id="export-journal-select" style="width:100%;background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;font-family:var(--font-body);outline:none">
+        <option value="">Tous les journaux</option>
+        <option value="AC">AC — Achats</option>
+        <option value="VE">VE — Ventes</option>
+        <option value="BQ">BQ — Banque</option>
+        <option value="CA">CA — Caisse</option>
+        <option value="OD">OD — Opérations Diverses</option>
+        <option value="IN">IN — Inventaire</option>
+        <option value="AN">AN — À Nouveau</option>
+      </select>
+    </div>
+
+    <!-- Période -->
+    <div style="margin-bottom:14px">
+      <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);margin-bottom:6px">Période (optionnel)</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="date" id="export-date-debut" style="flex:1;background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:12px;font-family:var(--font-body);outline:none">
+        <span style="color:var(--muted);font-size:11px">au</span>
+        <input type="date" id="export-date-fin" style="flex:1;background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:12px;font-family:var(--font-body);outline:none">
+      </div>
+    </div>
+
+    <!-- Format -->
+    <div style="margin-bottom:18px">
+      <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);margin-bottom:8px">Format d'export</div>
+      <div class="export-options" style="grid-template-columns:1fr 1fr 1fr">
+        <div class="export-opt selected" id="opt-pdf" onclick="selectExport('pdf')">
+          <div class="opt-icon">📄</div><div class="opt-label">PDF</div>
+          <div class="opt-sub">Imprimable, signable</div>
+        </div>
+        <div class="export-opt" id="opt-word" onclick="selectExport('word')">
+          <div class="opt-icon">📝</div><div class="opt-label">Word</div>
+          <div class="opt-sub">Éditable .doc</div>
+        </div>
+        <div class="export-opt" id="opt-excel" onclick="selectExport('excel')">
+          <div class="opt-icon">📊</div><div class="opt-label">Excel</div>
+          <div class="opt-sub">Analyse .xlsx CSV</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-modal-cancel" onclick="closeExportModal()">Annuler</button>
+      <button class="btn-modal-ok" onclick="doExport()">↓ Télécharger</button>
+    </div>
+  </div>
+</div>
+
+<!-- NOTIFICATION SAISIE IA -->
+<div id="saisieNotif" class="saisie-notification">
+  <div class="sn-title">✨ COMEO AI a préparé des écritures</div>
+  <div class="sn-body" id="saisieNotifBody">Les lignes sont prêtes dans la vue Saisie.</div>
+  <div class="sn-actions">
+    <button class="sn-btn-auto" onclick="autoSaveAllFromNotif()">⚡ Tout enregistrer</button>
+    <button class="sn-btn-go" onclick="goToSaisie()">→ Saisie manuelle</button>
+    <button class="sn-btn-dismiss" onclick="hideSaisieNotif()">Ignorer</button>
+  </div>
+</div>
+
+<!-- SIDEBAR OVERLAY (mobile) -->
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeMobileSidebar()"></div>
+
+<!-- APP -->
+<div class="shell" id="appShell" style="display:none">
+  <div id="serviceUnavailableBanner" class="service-unavailable-banner" style="display:none" aria-live="polite">
+    <span>⏳</span>
+    <span>Veuillez patienter quelques instants ou revenez plus tard. L'assistant IA est temporairement indisponible.</span>
+  </div>
+  <div class="topbar">
+    <button class="mobile-menu-btn" onclick="toggleMobileSidebar()" aria-label="Menu">☰</button>
+    <div class="logo-wrap">
+      <div class="logo">comeo AI</div>
+      <div class="logo-sub">Pro v4</div>
+    </div>
+    <div class="tb-sep"></div>
+    <div class="company-pill"><span>🏢</span><strong id="topCompanyName">—</strong></div>
+    <div class="topbar-right">
+      <div class="ex-pill">Exercice <input type="text" id="exerciceYear" value="2024" maxlength="4" onchange="updateStats()"></div>
+      <div class="chip-badge">OHADA 2023</div>
+      <span id="subscriptionBadge" class="sub-badge" style="display:none"></span>
+      <button class="btn btn-outline" onclick="openExportModal()">↓</button>
+      <button class="btn btn-danger-outline" onclick="doLogout()">⏻</button>
+    </div>
+  </div>
+
+  <div class="sidebar" id="mainSidebar">
+ <div class="sb-section">
+  <div class="sb-title">Navigation</div>
+  <div class="nav-item active" onclick="navigate('dashboard');closeMobileSidebar()"><span class="nav-icon">◈</span> Tableau de bord</div>
+  <div class="nav-item" onclick="navigate('saisie');closeMobileSidebar()"><span class="nav-icon">✎</span> Saisie</div>
+  <div class="nav-item" onclick="navigate('journal');closeMobileSidebar()"><span class="nav-icon">≡</span> Journal</div>
+  <div class="nav-item" onclick="navigate('grandlivre');closeMobileSidebar()"><span class="nav-icon">⊞</span> Grand Livre</div>
+  <div class="nav-item" onclick="navigate('balance');closeMobileSidebar()"><span class="nav-icon">⊟</span> Balance</div>
+</div>
+<div class="sb-section">
+  <div class="sb-title">Facturation</div>
+  <div class="nav-item" onclick="navigate('factures');closeMobileSidebar()"><span class="nav-icon">🧾</span> Factures</div>
+  <div class="nav-item" onclick="navigate('devis');closeMobileSidebar()"><span class="nav-icon">📋</span> Devis / Proformas</div>
+  <div class="nav-item" onclick="navigate('clients');closeMobileSidebar()"><span class="nav-icon">👥</span> Clients</div>
+  <div class="nav-item" onclick="navigate('fournisseurs');closeMobileSidebar()"><span class="nav-icon">🏭</span> Fournisseurs</div>
+</div>
+<div class="sb-section">
+  <div class="sb-title">États financiers</div>
+  <div class="nav-item" onclick="navigate('bilan');closeMobileSidebar()"><span class="nav-icon">⊠</span> Bilan</div>
+  <div class="nav-item" onclick="navigate('resultat');closeMobileSidebar()"><span class="nav-icon">↗</span> Compte de résultat</div>
+  <div class="nav-item" onclick="navigate('tresorerie');closeMobileSidebar()"><span class="nav-icon">◎</span> Trésorerie</div>
+</div>
+<div class="sb-section">
+  <div class="sb-title">Référentiel</div>
+  <div class="nav-item" onclick="navigate('plancomptable');closeMobileSidebar()"><span class="nav-icon">⊙</span> Plan SYSCOHADA</div>
+</div>
+    <div class="sb-stats-card">
+      <div class="stat-row"><span class="lbl">Écritures</span><span class="val" id="s-ecritures">0</span></div>
+      <div class="stat-row"><span class="lbl">Total débit</span><span class="val" id="s-debit">0</span></div>
+      <div class="stat-row"><span class="lbl">Total crédit</span><span class="val" id="s-credit">0</span></div>
+      <div class="stat-row"><span class="lbl">Équilibre</span><span class="val g" id="s-equil">✓</span></div>
+    </div>
+  </div>
+
+<!-- ═══════════════════ FACTURES ═══════════════════ -->
+<div class="view" id="view-factures">
+  <div class="ph">
+    <div><h1>Factures</h1><p>Gestion complète des factures clients</p></div>
+    <div class="ph-actions">
+      <button class="btn btn-sm-wire" onclick="exportFactureList()">↓ Exporter liste</button>
+      <button class="btn btn-ink" onclick="openFactureModal()">+ Nouvelle facture</button>
+    </div>
+  </div>
+
+  <!-- Barre filtres -->
+  <div class="filtre-periode-bar">
+    <label>Du</label><input type="date" id="fac-date-debut" onchange="renderFactures()">
+    <label>Au</label><input type="date" id="fac-date-fin" onchange="renderFactures()">
+    <label>Statut</label>
+    <select id="fac-statut" onchange="renderFactures()">
+      <option value="">Tous</option>
+      <option value="brouillon">Brouillon</option>
+      <option value="envoyee">Envoyée</option>
+      <option value="payee">Payée</option>
+      <option value="partielle">Partielle</option>
+      <option value="annulee">Annulée</option>
+      <option value="retard">En retard</option>
+    </select>
+    <input type="text" class="search-input" id="fac-search" placeholder="Client, N° facture…" oninput="renderFactures()" style="flex:1;min-width:140px">
+    <button class="btn-filtre-reset" onclick="resetFactureFiltre()">✕</button>
+  </div>
+
+  <!-- KPIs factures -->
+  <div class="kpi-grid" style="grid-template-columns:repeat(5,1fr);margin-bottom:16px">
+    <div class="kpi"><div class="kpi-label">Total facturé</div><div class="kpi-value" id="fkpi-total" style="color:var(--warm)">0</div><div class="kpi-sub">FCFA TTC</div></div>
+    <div class="kpi"><div class="kpi-label">Payé</div><div class="kpi-value" id="fkpi-paye" style="color:var(--green)">0</div><div class="kpi-sub">FCFA</div></div>
+    <div class="kpi"><div class="kpi-label">En attente</div><div class="kpi-value" id="fkpi-attente" style="color:var(--blue)">0</div><div class="kpi-sub">FCFA</div></div>
+    <div class="kpi"><div class="kpi-label">En retard</div><div class="kpi-value" id="fkpi-retard" style="color:var(--red)">0</div><div class="kpi-sub">FCFA</div></div>
+    <div class="kpi"><div class="kpi-label">Nb factures</div><div class="kpi-value" id="fkpi-nb">0</div><div class="kpi-sub">ce mois</div></div>
+  </div>
+
+  <div class="dtw">
+    <table class="dt">
+      <thead><tr>
+        <th>N° Facture</th><th>Date</th><th>Échéance</th>
+        <th>Client</th><th style="text-align:right">HT</th>
+        <th style="text-align:right">TVA</th><th style="text-align:right">TTC</th>
+        <th style="text-align:right">Payé</th><th>Statut</th><th>Actions</th>
+      </tr></thead>
+      <tbody id="facturesBody"><tr><td colspan="10"><div class="fb-loading">Chargement…</div></td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- MODAL FACTURE -->
+<div id="factureModal" class="modal-overlay" style="display:none">
+  <div class="modal-box" style="width:780px;max-width:100%;max-height:92vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div class="modal-title" id="factureModalTitle">Nouvelle Facture</div>
+      <button class="btn-modal-cancel" onclick="closeFactureModal()">✕</button>
+    </div>
+
+    <!-- En-tête facture -->
+    <div class="fg c4" style="margin-bottom:14px">
+      <div class="field"><label>N° Facture</label><input type="text" id="fac-numero" placeholder="Auto" readonly style="background:var(--surface3)"></div>
+      <div class="field"><label>Type</label>
+        <select id="fac-type">
+          <option value="facture">Facture</option>
+          <option value="proforma">Proforma</option>
+          <option value="avoir">Avoir</option>
+          <option value="acompte">Acompte</option>
+        </select>
+      </div>
+      <div class="field"><label>Date émission</label><input type="date" id="fac-date-emission"></div>
+      <div class="field"><label>Date échéance</label><input type="date" id="fac-date-echeance"></div>
+    </div>
+
+    <!-- Client -->
+    <div class="fg" style="margin-bottom:14px">
+      <div class="field">
+        <label>Client *</label>
+        <div class="asw">
+          <input type="text" id="fac-client-search" placeholder="Nom ou code client…" oninput="searchClientDrop(this.value)" autocomplete="off">
+          <div class="adrop" id="drop-client"></div>
+        </div>
+      </div>
+      <div class="field"><label>Référence / Commande</label><input type="text" id="fac-ref" placeholder="ex: BC-2024-001"></div>
+    </div>
+    <div class="fg c3" style="margin-bottom:14px">
+      <div class="field"><label>Adresse client</label><input type="text" id="fac-client-adresse" placeholder="Adresse de facturation"></div>
+      <div class="field"><label>Email client</label><input type="email" id="fac-client-email" placeholder="client@email.com"></div>
+      <div class="field"><label>Téléphone</label><input type="text" id="fac-client-tel" placeholder="+225 00 00 00 00"></div>
+    </div>
+
+    <!-- Lignes de facture -->
+    <div class="card-title" style="margin-bottom:8px">Lignes de facturation</div>
+    <div style="overflow-x:auto;margin-bottom:8px">
+      <table style="width:100%;border-collapse:collapse;min-width:600px">
+        <thead>
+          <tr style="background:var(--ink)">
+            <th style="padding:8px 10px;color:var(--warm);font-size:8px;text-transform:uppercase;letter-spacing:.1em;font-family:var(--font-mono);text-align:left">Désignation</th>
+            <th style="padding:8px 10px;color:var(--warm);font-size:8px;text-transform:uppercase;letter-spacing:.1em;font-family:var(--font-mono);text-align:right;width:70px">Qté</th>
+            <th style="padding:8px 10px;color:var(--warm);font-size:8px;text-transform:uppercase;letter-spacing:.1em;font-family:var(--font-mono);text-align:right;width:110px">P.U. HT</th>
+            <th style="padding:8px 10px;color:var(--warm);font-size:8px;text-transform:uppercase;letter-spacing:.1em;font-family:var(--font-mono);text-align:right;width:70px">Remise %</th>
+            <th style="padding:8px 10px;color:var(--warm);font-size:8px;text-transform:uppercase;letter-spacing:.1em;font-family:var(--font-mono);text-align:right;width:70px">TVA %</th>
+            <th style="padding:8px 10px;color:var(--warm);font-size:8px;text-transform:uppercase;letter-spacing:.1em;font-family:var(--font-mono);text-align:right;width:120px">Total HT</th>
+            <th style="width:36px"></th>
+          </tr>
+        </thead>
+        <tbody id="facLignesBody"></tbody>
+      </table>
+    </div>
+    <button class="add-line-btn" onclick="addFacLigne()" style="margin-bottom:14px">＋ Ajouter une ligne</button>
+
+    <!-- Totaux -->
+    <div style="display:flex;justify-content:flex-end;margin-bottom:14px">
+      <div style="background:var(--ink);border-radius:var(--r);padding:14px 20px;min-width:280px">
+        <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px;color:rgba(255,255,255,.5);border-bottom:1px solid rgba(255,255,255,.06)">
+          <span>Sous-total HT</span><span id="fac-subtotal" style="font-family:var(--font-mono);color:rgba(255,255,255,.7)">0 FCFA</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px;color:rgba(255,255,255,.5);border-bottom:1px solid rgba(255,255,255,.06)">
+          <span>Remise globale</span>
+          <span><input type="number" id="fac-remise-globale" value="0" min="0" max="100" style="width:50px;background:transparent;border:none;color:var(--warm);font-family:var(--font-mono);text-align:right;outline:none" oninput="updateFacTotaux()">%</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px;color:rgba(255,255,255,.5);border-bottom:1px solid rgba(255,255,255,.06)">
+          <span>TVA</span><span id="fac-tva-total" style="font-family:var(--font-mono);color:#60a5fa">0 FCFA</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:8px 0 0;font-size:15px;font-weight:700;color:var(--warm)">
+          <span>TOTAL TTC</span><span id="fac-ttc-total" style="font-family:var(--font-mono)">0 FCFA</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Options -->
+    <div class="fg c3" style="margin-bottom:14px">
+      <div class="field"><label>Mode de règlement</label>
+        <select id="fac-mode-reglement">
+          <option value="virement">Virement bancaire</option>
+          <option value="cheque">Chèque</option>
+          <option value="especes">Espèces</option>
+          <option value="mobile">Mobile Money</option>
+          <option value="carte">Carte bancaire</option>
+        </select>
+      </div>
+      <div class="field"><label>Conditions de paiement</label>
+        <select id="fac-conditions">
+          <option value="immediat">Paiement immédiat</option>
+          <option value="30j">30 jours</option>
+          <option value="45j">45 jours</option>
+          <option value="60j">60 jours</option>
+          <option value="90j">90 jours</option>
+        </select>
+      </div>
+      <div class="field"><label>Monnaie</label>
+        <select id="fac-monnaie">
+          <option value="FCFA">FCFA (XOF)</option>
+          <option value="EUR">Euro (€)</option>
+          <option value="USD">Dollar ($)</option>
+        </select>
+      </div>
+    </div>
+    <div class="field full" style="margin-bottom:14px">
+      <label>Notes / Conditions générales</label>
+      <textarea id="fac-notes" rows="3" placeholder="Mentions légales, conditions de paiement, remerciements…"></textarea>
+    </div>
+
+    <!-- Actions -->
+    <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+      <button class="btn-modal-cancel" onclick="closeFactureModal()">Annuler</button>
+      <button class="btn btn-sm-wire" onclick="saveFacture('brouillon')">💾 Enregistrer brouillon</button>
+      <button class="btn btn-wire" onclick="previewFacturePDF()">👁 Aperçu PDF</button>
+      <button class="btn btn-ink" onclick="saveFacture('envoyee')">✓ Valider & Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ DEVIS / PROFORMAS ═══════════════════ -->
+<div class="view" id="view-devis">
+  <div class="ph">
+    <div><h1>Devis & Proformas</h1><p>Gérez vos devis et convertissez-les en factures</p></div>
+    <div class="ph-actions">
+      <button class="btn btn-ink" onclick="openDevisModal()">+ Nouveau devis</button>
+    </div>
+  </div>
+  <div class="dtw">
+    <table class="dt">
+      <thead><tr>
+        <th>N° Devis</th><th>Date</th><th>Validité</th><th>Client</th>
+        <th style="text-align:right">Montant TTC</th><th>Statut</th><th>Actions</th>
+      </tr></thead>
+      <tbody id="devisBody"><tr><td colspan="7"><div class="fb-loading">Aucun devis</div></td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ═══════════════════ CLIENTS ═══════════════════ -->
+<div class="view" id="view-clients">
+  <div class="ph">
+    <div><h1>Clients</h1><p>Répertoire et suivi des clients</p></div>
+    <div class="ph-actions">
+      <button class="btn btn-ink" onclick="openClientModal()">+ Nouveau client</button>
+    </div>
+  </div>
+  <div class="toolbar">
+    <input type="text" class="search-input" id="cli-search" placeholder="Nom, email, téléphone…" oninput="renderClients()" style="flex:1;min-width:180px">
+  </div>
+  <div class="dtw">
+    <table class="dt">
+      <thead><tr>
+        <th>Code</th><th>Nom / Raison sociale</th><th>Téléphone</th><th>Email</th>
+        <th style="text-align:right">CA total</th><th style="text-align:right">Solde dû</th><th>Actions</th>
+      </tr></thead>
+      <tbody id="clientsBody"><tr><td colspan="7"><div class="fb-loading">Aucun client</div></td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- MODAL CLIENT -->
+<div id="clientModal" class="modal-overlay" style="display:none">
+  <div class="modal-box" style="width:520px">
+    <div class="modal-title" id="clientModalTitle">Nouveau client</div>
+    <div class="modal-sub">Informations du client</div>
+    <div class="fg" style="margin-bottom:12px">
+      <div class="field"><label>Code client</label><input type="text" id="cli-code" placeholder="CLI-001" readonly style="background:var(--surface3)"></div>
+      <div class="field"><label>Nom / Raison sociale *</label><input type="text" id="cli-nom" placeholder="ex: SOTRA SARL"></div>
+    </div>
+    <div class="fg c3" style="margin-bottom:12px">
+      <div class="field"><label>Téléphone</label><input type="text" id="cli-tel" placeholder="+225 00 00 00 00"></div>
+      <div class="field"><label>Email</label><input type="email" id="cli-email" placeholder="contact@client.ci"></div>
+      <div class="field"><label>Ville</label><input type="text" id="cli-ville" placeholder="Abidjan"></div>
+    </div>
+    <div class="fg" style="margin-bottom:12px">
+      <div class="field"><label>Adresse</label><input type="text" id="cli-adresse" placeholder="Adresse complète"></div>
+      <div class="field"><label>NIF / N° contribuable</label><input type="text" id="cli-nif" placeholder="NIF CI…"></div>
+    </div>
+    <div class="field full" style="margin-bottom:16px">
+      <label>Notes internes</label>
+      <textarea id="cli-notes" rows="2" placeholder="Informations supplémentaires…"></textarea>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn-modal-cancel" onclick="closeClientModal()">Annuler</button>
+      <button class="btn-modal-ok" onclick="saveClient()">✓ Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ FOURNISSEURS ═══════════════════ -->
+<div class="view" id="view-fournisseurs">
+  <div class="ph">
+    <div><h1>Fournisseurs</h1><p>Répertoire et suivi des fournisseurs</p></div>
+    <div class="ph-actions">
+      <button class="btn btn-ink" onclick="openFournisseurModal()">+ Nouveau fournisseur</button>
+    </div>
+  </div>
+  <div class="toolbar">
+    <input type="text" class="search-input" id="four-search" placeholder="Nom, email, téléphone…" oninput="renderFournisseurs()" style="flex:1;min-width:180px">
+  </div>
+  <div class="dtw">
+    <table class="dt">
+      <thead><tr>
+        <th>Code</th><th>Nom / Raison sociale</th><th>Téléphone</th><th>Email</th>
+        <th style="text-align:right">Total achats</th><th style="text-align:right">Solde dû</th><th>Actions</th>
+      </tr></thead>
+      <tbody id="fournisseursBody"><tr><td colspan="7"><div class="fb-loading">Aucun fournisseur</div></td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- MODAL FOURNISSEUR -->
+<div id="fournisseurModal" class="modal-overlay" style="display:none">
+  <div class="modal-box" style="width:520px">
+    <div class="modal-title">Nouveau fournisseur</div>
+    <div class="modal-sub">Informations du fournisseur</div>
+    <div class="fg" style="margin-bottom:12px">
+      <div class="field"><label>Code fournisseur</label><input type="text" id="four-code" placeholder="FRN-001" readonly style="background:var(--surface3)"></div>
+      <div class="field"><label>Nom / Raison sociale *</label><input type="text" id="four-nom" placeholder="ex: HOLALI SARL"></div>
+    </div>
+    <div class="fg c3" style="margin-bottom:12px">
+      <div class="field"><label>Téléphone</label><input type="text" id="four-tel" placeholder="+225 00 00 00 00"></div>
+      <div class="field"><label>Email</label><input type="email" id="four-email" placeholder="contact@fournisseur.ci"></div>
+      <div class="field"><label>Ville</label><input type="text" id="four-ville" placeholder="Abidjan"></div>
+    </div>
+    <div class="fg" style="margin-bottom:12px">
+      <div class="field"><label>Adresse</label><input type="text" id="four-adresse" placeholder="Adresse complète"></div>
+      <div class="field"><label>NIF / N° contribuable</label><input type="text" id="four-nif" placeholder="NIF CI…"></div>
+    </div>
+    <div class="field full" style="margin-bottom:16px">
+      <label>Notes internes</label>
+      <textarea id="four-notes" rows="2"></textarea>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn-modal-cancel" onclick="closeFournisseurModal()">Annuler</button>
+      <button class="btn-modal-ok" onclick="saveFournisseur()">✓ Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+  <div class="main">
+
+    <!-- DASHBOARD -->
+    <div class="view active" id="view-dashboard">
+      <div class="ph">
+        <div><h1>Tableau de bord</h1><p>SYSCOHADA Révisé 2023 — Assistant comptable expert</p></div>
+        <div class="ph-actions">
+          <button class="btn btn-sm-wire" onclick="openExportModal()">↓ Exporter</button>
+          <button class="btn btn-ink" onclick="navigate('saisie')">✎ Nouvelle écriture</button>
+        </div>
+      </div>
+      <div class="kpi-grid">
+        <div class="kpi"><div class="kpi-label">Écritures</div><div class="kpi-value" id="dash-nb">0</div><div class="kpi-sub">Exercice en cours</div></div>
+        <div class="kpi"><div class="kpi-label">Total débit</div><div class="kpi-value" id="dash-debit" style="color:var(--blue)">0</div><div class="kpi-sub">FCFA</div></div>
+        <div class="kpi"><div class="kpi-label">Total crédit</div><div class="kpi-value" id="dash-credit" style="color:var(--green)">0</div><div class="kpi-sub">FCFA</div></div>
+        <div class="kpi"><div class="kpi-label">Résultat provisoire</div><div class="kpi-value" id="dash-res" style="color:var(--warm)">0</div><div class="kpi-sub">Produits – Charges</div></div>
+      </div>
+
+      <!-- BANDEAU MULTI-ÉCRITURES -->
+      <div class="multi-ecr-banner" id="multiEcrBanner">
+        <div class="meb-icon">✅</div>
+        <div class="meb-text">
+          <strong id="mebTitle">COMEO AI a préparé les écritures</strong>
+          <ul class="meb-list" id="mebList"></ul>
+          <div class="meb-actions">
+            <button class="meb-btn-auto" onclick="autoSaveAllEcritures()">⚡ Tout enregistrer automatiquement</button>
+            <button class="meb-btn-nav" onclick="goToSaisie()">→ Saisie manuelle</button>
+            <button class="meb-btn-dismiss" onclick="hideMultiEcrBanner()">✕ Fermer</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- AUTO SAVE BAR -->
+      <div class="auto-save-bar" id="autoSaveBar">
+        <div class="asb-icon">⚡</div>
+        <div class="asb-text">
+          <strong id="autoSaveMsg">Enregistrement en cours…</strong>
+          <div class="asb-progress"><div class="asb-progress-bar" id="autoSaveProgress" style="width:0%"></div></div>
+        </div>
+      </div>
+
+      <!-- IMAGE DE MARQUE À LA PLACE DU CHAT IA -->
+      <div style="margin-top:20px;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.18)">
+        <img src="images/as.jpeg" alt="COMEO AI" style="width:100%;display:block;object-fit:cover">
+      </div>
+
+      <!-- Éléments cachés requis par le JS du tableau de bord -->
+      <div id="aiMessages" style="display:none"></div>
+      <textarea id="aiInput" style="display:none"></textarea>
+      <button id="aiSendBtn" style="display:none"></button>
+
+    </div>
+
+    <!-- SAISIE -->
+  <div class="view" id="view-saisie">
+  <div class="ph">
+    <div><h1>Saisie des écritures</h1><p>Éditeur de comptes — assisté par COMEO AI</p></div>
+    <div class="ph-actions">
+      <button class="btn btn-ink" id="btnTopValidate" onclick="onClickTopValidate()">↳ Valider l'écriture</button>
+    </div>
+  </div>
+
+  <div class="saisie-queue-bar" id="saisieQueueBar">
+    <span class="sqb-label">ÉCRITURES EN FILE</span>
+    <span class="sqb-counter" id="sqbCounter">0</span>
+    <span style="color:rgba(255,255,255,.4);font-size:11px;flex:1" id="sqbHint">Validez cette écriture pour passer à la suivante</span>
+    <button class="btn-validate-all" id="btnValidateAll" onclick="autoSaveAllEcritures()">⚡ Tout enregistrer</button>
+    <button class="sqb-skip" onclick="skipToNextEcriture()">Ignorer →</button>
+  </div>
+
+  <div class="saisie-ide-layout">
+
+    <!-- ── GAUCHE : ÉDITEUR DE COMPTES (page principale) ── -->
+    <div class="saisie-ide-left">
+      <div class="card" style="margin-bottom:14px;flex-shrink:0">
+        <div class="card-title">En-tête de l'écriture</div>
+        <div class="fg c4">
+          <div class="field"><label>Date</label><input type="date" id="ecr-date"></div>
+          <div class="field"><label>Journal</label>
+            <select id="ecr-journal">
+              <option value="AC">AC — Achats</option><option value="VE">VE — Ventes</option>
+              <option value="BQ">BQ — Banque</option><option value="CA">CA — Caisse</option>
+              <option value="OD">OD — Opérations Diverses</option><option value="AN">AN — À Nouveau</option>
+              <option value="IN">IN — Inventaire</option>
+            </select>
+          </div>
+          <div class="field"><label>N° Pièce</label><input type="text" id="ecr-piece" placeholder="Auto"></div>
+          <div class="field"><label>Libellé général</label><input type="text" id="ecr-libelle" placeholder="Description…"></div>
+        </div>
+      </div>
+
+      <div class="card" id="singleLignesCard" style="flex:1;display:flex;flex-direction:column;min-height:0">
+        <div class="card-title">Lignes d'écriture</div>
+        <div class="et-wrapper" style="flex:1;overflow-y:auto">
+          <table class="et">
+            <thead><tr><th style="min-width:120px">Compte</th><th>Libellé</th><th style="min-width:110px;text-align:right">Débit (FCFA)</th><th style="min-width:110px;text-align:right">Crédit (FCFA)</th><th style="width:36px"></th></tr></thead>
+            <tbody id="lignesBody"></tbody>
+          </table>
+        </div>
+        <div id="lignesCardContainer"></div>
+        <button class="add-line-btn" onclick="addLigne()">＋ Ajouter une ligne</button>
+        <div class="bal-bar">
+          <div class="bal-item"><label>Débit</label><span class="val" id="totalDebitDisplay" style="color:#60a5fa">0</span></div>
+          <div class="bal-item"><label>Crédit</label><span class="val" id="totalCreditDisplay" style="color:#4ade80">0</span></div>
+          <div class="bal-item" style="margin-left:auto"><label>Solde</label><span class="val bok" id="soldeDisplay">0</span></div>
+        </div>
+      </div>
+
+      <!-- ÉDITEUR MULTI-ÉCRITURES — affiche TOUTES les écritures générées par l'IA pour vérification/modification avant validation -->
+      <div class="multi-ecr-editor" id="multiEcrEditor"></div>
+    </div>
+
+    <!-- ── DROITE : ASSISTANT IA (panneau fixe, comme Claude Code) ── -->
+    <div class="saisie-ide-right">
+      <div class="ide-right-header">
+        <div class="comeo-dot"></div>
+        <span class="ide-right-title">COMEO AI</span>
+        <span class="ide-right-sub">Assistant comptable</span>
+      </div>
+      <div class="comeo-messages" id="aiMessages-saisie">
+        <div class="msg ai"><div class="msg-av">C</div><div class="msg-body">Décrivez l'opération et je prépare les lignes. Pour un achat ou vente, je génère les <strong>3 écritures</strong> — cliquez <strong>"Tout enregistrer"</strong> pour les valider toutes en une fois.</div></div>
+      </div>
+      <div class="ai-fill-banner" id="aiFillBanner">
+        <div class="afi-icon">✨</div>
+        <div class="afi-text">
+          <strong>COMEO AI — Écriture <span id="aiFillNum"></span></strong> — <span id="aiFillDesc">—</span><br>
+          <span style="font-size:11px;color:var(--muted)">Vérifiez les lignes à gauche avant de valider</span>
+        </div>
+        <button class="btn-dismiss" onclick="dismissFillBanner()">✕</button>
+      </div>
+      <div class="comeo-input-row">
+        <textarea class="comeo-input" id="aiInput-saisie" placeholder="ex: Achat matériel bureau 250000 FCFA HT par chèque, TVA 18%..." onkeydown="handleAiKey(event,'saisie')"></textarea>
+        <button class="btn btn-ink" onclick="sendToAI('saisie')">⚡</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+    <!-- JOURNAL REDESIGNÉ — GROUPÉ PAR OPÉRATION -->
+    <div class="view" id="view-journal">
+      <div class="ph">
+        <div><h1>Journal général</h1><p>Opérations regroupées — 3 écritures liées par opération</p></div>
+        <div class="ph-actions">
+          <button class="btn btn-sm-wire" onclick="openExportModal()">⎙ Exporter</button>
+          <button class="btn btn-ink" onclick="navigate('saisie')">+ Nouvelle</button>
+        </div>
+      </div>
+
+      <div class="filtre-periode-bar">
+        <label>Du</label><input type="date" id="jnl-date-debut" onchange="renderJournal()">
+        <label>Au</label><input type="date" id="jnl-date-fin" onchange="renderJournal()">
+        <label>Journal</label>
+        <select id="journalFilter" onchange="renderJournal()">
+          <option value="">Tous</option>
+          <option value="AC">Achats</option><option value="VE">Ventes</option>
+          <option value="BQ">Banque</option><option value="CA">Caisse</option>
+          <option value="OD">OD</option><option value="IN">Inventaire</option>
+        </select>
+        <input type="text" class="search-input" placeholder="Rechercher compte / libellé…" id="journalSearch" oninput="renderJournal()" style="min-width:160px;flex:1">
+        <button class="btn-filtre-reset" onclick="resetJournalFiltre()">✕ Effacer</button>
+      </div>
+
+      <div id="journal-analyse" style="display:none" class="analyse-card"></div>
+      <div id="journalContent"></div>
+
+      <div id="journal-totaux-footer" style="display:none">
+        <div class="jnl-footer-totaux">
+          <div class="jnl-footer-item"><span class="jnl-footer-label">Opérations</span><span class="jnl-footer-val" id="jnl-nb-groupes" style="color:var(--warm)">0</span></div>
+          <div class="jnl-footer-item"><span class="jnl-footer-label">Écritures</span><span class="jnl-footer-val" id="jnl-nb-ecr" style="color:rgba(255,255,255,.5)">0</span></div>
+          <div class="jnl-footer-item"><span class="jnl-footer-label">Lignes</span><span class="jnl-footer-val" id="jnl-nb-lignes" style="color:rgba(255,255,255,.3)">0</span></div>
+          <div class="jnl-footer-item"><span class="jnl-footer-label">Total Débit</span><span class="jnl-footer-val d" id="jnl-total-debit">0</span></div>
+          <div class="jnl-footer-item"><span class="jnl-footer-label">Total Crédit</span><span class="jnl-footer-val c" id="jnl-total-credit">0</span></div>
+          <div class="jnl-footer-item"><span id="jnl-equil-label" class="jnl-footer-val eq">✓ Équilibré</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- GRAND LIVRE -->
+    <div class="view" id="view-grandlivre">
+      <div class="ph">
+        <div><h1>Grand Livre</h1><p>Mouvements détaillés par compte</p></div>
+        <div class="ph-actions"><button class="btn btn-sm-wire" onclick="openExportModal()">⎙ Exporter</button></div>
+      </div>
+      <div class="filtre-periode-bar">
+        <label>Du</label><input type="date" id="gl-date-debut" onchange="renderGrandLivre()">
+        <label>Au</label><input type="date" id="gl-date-fin" onchange="renderGrandLivre()">
+        <input type="text" class="search-input" placeholder="Compte ou libellé…" id="glSearch" oninput="renderGrandLivre()" style="min-width:160px">
+        <button class="btn-filtre-reset" onclick="resetGLFiltre()">✕</button>
+      </div>
+      <div id="grandLivreContent"><div class="empty-state"><div class="icon">⊞</div><p>Aucun mouvement</p></div></div>
+    </div>
+
+    <!-- BALANCE -->
+    <div class="view" id="view-balance">
+      <div class="ph">
+        <div><h1>Balance générale</h1><p>Synthèse des mouvements et soldes par compte</p></div>
+        <div class="ph-actions"><button class="btn btn-sm-wire" onclick="openExportModal()">⎙ Exporter</button></div>
+      </div>
+      <div class="filtre-periode-bar">
+        <label>Du</label><input type="date" id="bal-date-debut" onchange="renderBalance()">
+        <label>Au</label><input type="date" id="bal-date-fin" onchange="renderBalance()">
+        <label>Journal</label>
+        <select id="bal-journal" onchange="renderBalance()">
+          <option value="">Tous</option>
+          <option value="AC">Achats</option><option value="VE">Ventes</option>
+          <option value="BQ">Banque</option><option value="CA">Caisse</option>
+          <option value="OD">OD</option><option value="IN">Inventaire</option>
+        </select>
+        <label>Classe</label>
+        <select id="bal-classe" onchange="renderBalance()">
+          <option value="">Toutes</option>
+          <option value="1">Classe 1</option><option value="2">Classe 2</option>
+          <option value="3">Classe 3</option><option value="4">Classe 4</option>
+          <option value="5">Classe 5</option><option value="6">Classe 6</option>
+          <option value="7">Classe 7</option>
+        </select>
+        <button class="btn-filtre-reset" onclick="resetBalanceFiltre()">✕</button>
+      </div>
+      <div id="balance-analyse" style="display:none" class="analyse-card"></div>
+      <div class="dtw">
+        <table class="dt">
+          <thead><tr><th>Compte</th><th>Libellé</th><th style="text-align:right">Mvt Débit</th><th style="text-align:right">Mvt Crédit</th><th style="text-align:right">Solde Débiteur</th><th style="text-align:right">Solde Créditeur</th></tr></thead>
+          <tbody id="balanceBody"><tr><td colspan="6"><div class="fb-loading">Chargement…</div></td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- BILAN -->
+    <div class="view" id="view-bilan">
+      <div class="ph">
+        <div><h1>Bilan</h1><p>Situation au <span id="bilanDate">31/12/2024</span></p></div>
+        <div class="ph-actions"><button class="btn btn-sm-wire" onclick="openExportModal()">⎙ Exporter</button></div>
+      </div>
+      <div class="filtre-periode-bar">
+        <label>Arrêté au</label>
+        <input type="date" id="bilan-date-arrete" onchange="renderBilan()">
+        <button class="btn-filtre-reset" onclick="document.getElementById('bilan-date-arrete').value='';renderBilan()">Tout l'exercice</button>
+      </div>
+      <div class="bilan-grid" id="bilanContent">
+        <div class="empty-state" style="grid-column:1/-1"><div class="icon">⊠</div><p>Saisissez des écritures pour générer le bilan</p></div>
+      </div>
+    </div>
+
+    <!-- RESULTAT -->
+    <div class="view" id="view-resultat">
+      <div class="ph">
+        <div><h1>Compte de résultat</h1><p>Exercice <span id="resultatYear">2024</span></p></div>
+        <div class="ph-actions"><button class="btn btn-sm-wire" onclick="openExportModal()">⎙ Exporter</button></div>
+      </div>
+      <div class="card" id="resultatContent"><div class="empty-state"><div class="icon">↗</div><p>Aucune donnée</p></div></div>
+    </div>
+
+    <!-- TRESORERIE -->
+    <div class="view" id="view-tresorerie">
+      <div class="ph">
+        <div><h1>Trésorerie</h1><p>Flux de trésorerie — Classe 5</p></div>
+        <div class="ph-actions"><button class="btn btn-sm-wire" onclick="openExportModal()">⎙ Exporter</button></div>
+      </div>
+      <div class="card" id="tresorerieContent"><div class="empty-state"><div class="icon">◎</div><p>Comptes de trésorerie (5xxx)</p></div></div>
+    </div>
+
+    <!-- PLAN COMPTABLE -->
+    <div class="view" id="view-plancomptable">
+      <div class="ph"><div><h1>Plan Comptable SYSCOHADA</h1><p>Révisé 2023</p></div></div>
+      <div class="toolbar">
+        <input type="text" class="search-input" placeholder="Code ou libellé…" id="pcSearch" oninput="renderPlanComptable()" style="min-width:200px;flex:1">
+        <select id="pcClass" class="search-input" style="min-width:140px" onchange="renderPlanComptable()">
+          <option value="">Toutes les classes</option>
+          <option value="1">Classe 1 — Capitaux</option><option value="2">Classe 2 — Immobilisations</option>
+          <option value="3">Classe 3 — Stocks</option><option value="4">Classe 4 — Tiers</option>
+          <option value="5">Classe 5 — Trésorerie</option><option value="6">Classe 6 — Charges</option>
+          <option value="7">Classe 7 — Produits</option><option value="8">Classe 8 — Spéciaux</option>
+        </select>
+      </div>
+      <div class="pc3d-grid" id="pcBody"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════
+     COMEO ROBOT — Bouton flottant
+     ═══════════════════════════════════ -->
+<button class="robot-fab" onclick="openRobot()" aria-label="Ouvrir l'assistant vocal COMEO AI">
+  <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+    <path d="M12 2a2 2 0 012 2v1h1a3 3 0 013 3v7a3 3 0 01-3 3H9a3 3 0 01-3-3V8a3 3 0 013-3h1V4a2 2 0 012-2zm0 5H9a1 1 0 00-1 1v7a1 1 0 001 1h6a1 1 0 001-1V8a1 1 0 00-1-1h-3zm-2 3a1 1 0 110 2 1 1 0 010-2zm4 0a1 1 0 110 2 1 1 0 010-2zm-2 3c1.1 0 2 .45 2 1H10c0-.55.9-1 2-1z"/>
+  </svg>
+  <span class="robot-fab-label">Assistant Vocal</span>
+</button>
+
+<div id="robotPanel" class="robot-panel">
+  <div class="robot-canvas">
+    <div class="r-grid"></div>
+    <div class="r-orb r-orb1"></div>
+    <div class="r-orb r-orb2"></div>
+    <div class="r-orb r-orb3"></div>
+  </div>
+
+  <div class="robot-topbar">
+    <div class="robot-topbar-left">
+      <div class="r-pulse-dot"></div>
+      <span class="robot-name">COMEO AI</span>
+      <span class="robot-version">v4 · MarcioAI dev</span>
+      <span class="robot-status-pill" id="robotStatusPill">En ligne</span>
+    </div>
+    <button class="robot-close" onclick="closeRobot()">✕ Fermer</button>
+  </div>
+
+  <div class="robot-body">
+    <div class="avatar-rings-wrap">
+      <div class="r-ring r3"></div>
+      <div class="r-ring r2"><div class="r-ring-dot"></div></div>
+      <div class="r-ring r1"><div class="r-ring-dot"></div></div>
+     <div class="robot-avatar-main" id="robotAvatar">
+        <div class="robot-avatar-halo"></div>
+        <img src="images/marciodev.jpg" class="robot-avatar-img"
+          onerror="this.style.display='none';document.getElementById('robotAFb').style.display='flex'">
+        <div class="robot-avatar-fallback" id="robotAFb" style="display:none">CA</div>
+        <div class="robot-avatar-badge">AI</div>
+      </div>
+    </div>
+    <div class="robot-meta">
+      <div class="robot-meta-name">COMEO AI</div>
+      <div class="robot-meta-role">Expert-Comptable SYSCOHADA · MarcioAI dev · Concepteur : Marcio Jardel ZINZINDOHOUE</div>
+    </div>
+
+    <div class="robot-bubble" id="robotBubble">
+      <div class="robot-bubble-text" id="robotBubbleText">
+        Bonjour ! Je suis <strong>COMEO AI</strong>, prêt à vous aider.<span class="blink-cur"></span>
+      </div>
+    </div>
+
+    <div class="robot-controls">
+      <button class="rctrl-btn" title="Paramètres vocaux" onclick="toast('Paramètres vocaux bientôt disponibles','info')">
+        <svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 100-6 3 3 0 000 6zm7.94-2.06l1.06-.61a1 1 0 000-1.72l-1.06-.6c.04-.34.06-.67.06-1.01s-.02-.68-.06-1.01l1.06-.6a1 1 0 000-1.73l-1.06-.6A8 8 0 0017.6 3.7l-.26-1.2A1 1 0 0016.37 2h-8.74a1 1 0 00-.97.76l-.26 1.19A8 8 0 003.06 6.06L2 6.66a1 1 0 000 1.73l1.06.6C3.02 9.32 3 9.65 3 10s.02.68.06 1.01L2 11.61a1 1 0 000 1.73l1.06.6A8 8 0 006.4 16.3l.26 1.19a1 1 0 00.97.76h8.74a1 1 0 00.97-.76l.26-1.19A8 8 0 0019.94 13z"/></svg>
+      </button>
+      <button class="robot-mic-btn" id="robotMicBtn" type="button" aria-label="Maintenez pour parler">
+        <span class="mic-ripple mic-r1" aria-hidden="true"></span>
+        <span class="mic-ripple mic-r2" aria-hidden="true"></span>
+        <span class="mic-ripple mic-r3" aria-hidden="true"></span>
+        <span class="mic-glow-ring" aria-hidden="true"></span>
+        <span class="mic-core">
+          <svg viewBox="0 0 24 24"><path d="M12 1a4 4 0 014 4v6a4 4 0 01-8 0V5a4 4 0 014-4zm0 2a2 2 0 00-2 2v6a2 2 0 004 0V5a2 2 0 00-2-2zm-6 9a6 6 0 0012 0h2a8 8 0 01-7 7.93V22h-2v-2.07A8 8 0 014 12z"/></svg>
+        </span>
+        <span class="mic-wave-bars" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+        </span>
+      </button>
+      <button class="rctrl-btn" title="Effacer l'historique" onclick="robotConvHistory=[];toast('Conversation réinitialisée','info')">
+        <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 110 20A10 10 0 0112 2zm0 2a8 8 0 100 16A8 8 0 0012 4zm-2 5h4a1 1 0 010 2h-1v4a1 1 0 01-2 0v-4h-1a1 1 0 010-2z"/></svg>
+      </button>
+    </div>
+
+    <div class="robot-hint" id="robotHint">Maintenez le micro pour parler</div>
+  </div>
+
+  <div class="robot-stats-bar">
+    <div class="rstat"><div class="rstat-dot" style="background:#22c55e"></div><span>Connexion</span><span class="rstat-val">AI connect</span></div>
+    <div class="rstat"><div class="rstat-dot" style="background:#d4a853"></div><span>Modèle</span><span class="rstat-val" id="rstatModel">MarcioDEV</span></div>
+    <div class="rstat"><div class="rstat-dot" style="background:#3b82f6"></div><span>Latence</span><span class="rstat-val">&lt; 400ms</span></div>
+    <div class="rstat"><div class="rstat-dot" style="background:#8b5cf6"></div><span>Langue</span><span class="rstat-val">Français</span></div>
+  </div>
+</div>
+</div>
+<script type="module" src="as.js"></script>
+</body>
+</html>
