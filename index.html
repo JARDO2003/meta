@@ -9,6 +9,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <link rel="stylesheet" href="as.css">
+<link rel="stylesheet" href="collab.css">
 </head>
 <body>
 
@@ -228,14 +229,12 @@
   <div class="sb-title">Référentiel</div>
   <div class="nav-item" onclick="navigate('plancomptable');closeMobileSidebar()"><span class="nav-icon">⊙</span> Plan SYSCOHADA</div>
 </div>
-<!-- NOUVEAU -->
 <div class="sb-section">
-  <div class="sb-title">Référentiel</div>
-  <div class="nav-item" onclick="navigate('plancomptable');closeMobileSidebar()"><span class="nav-icon">⊙</span> Plan SYSCOHADA</div>
-</div>
-<div class="sb-section">
-  <div class="sb-title">Collaboration</div>
-  <div class="nav-item" onclick="navigate('collaboration');closeMobileSidebar()"><span class="nav-icon">🤝</span> Espace collaboratif</div>
+  <div class="sb-title">Travail d'équipe</div>
+  <div class="nav-item" onclick="navigate('collaboration');closeMobileSidebar()">
+    <span class="nav-icon">👥</span> Collaboration
+    <span class="nav-collab-badge">LIVE</span>
+  </div>
 </div>
     <div class="sb-stats-card">
       <div class="stat-row"><span class="lbl">Écritures</span><span class="val" id="s-ecritures">0</span></div>
@@ -245,7 +244,6 @@
     </div>
   </div>
 
- 
 <!-- ═══════════════════ FACTURES ═══════════════════ -->
 <div class="view" id="view-factures">
   <div class="ph">
@@ -539,115 +537,9 @@
   </div>
 </div>
 
-<!-- NOUVEAU — VUE COLLABORATION (déplacée dans .main pour que navigate() fonctionne) -->
-<div class="view" id="view-collaboration">
-  <div class="ph">
-    <div><h1>Espace collaboratif</h1><p>Travaillez en temps réel avec jusqu'à 6 collaborateurs</p></div>
-    <div class="ph-actions">
-      <button class="btn btn-ink" id="btnCreerSession" onclick="creerSessionCollaboration()">⚡ Créer une session</button>
-    </div>
-  </div>
-
-  <!-- STATUT SESSION -->
-  <div id="collab-status-bar" class="collab-status-bar" style="display:none">
-    <div class="csb-left">
-      <div class="csb-dot" id="csbDot"></div>
-      <span id="csbLabel">Session active</span>
-      <code id="csbCode" class="csb-code"></code>
-      <button class="csb-copy" onclick="copierCodeSession()">📋 Copier le code</button>
-    </div>
-    <div class="csb-peers" id="csbPeers"></div>
-    <button class="csb-quit" onclick="quitterSession()">✕ Quitter</button>
-  </div>
-
-  <!-- REJOINDRE UNE SESSION -->
-  <div class="card collab-join-card" id="collabJoinCard">
-    <div class="cjc-title">Rejoindre une session existante</div>
-    <div class="cjc-row">
-      <input type="text" id="collabCodeInput" class="cjc-input" placeholder="Collez le code de session ici…" maxlength="8">
-      <button class="btn btn-ink" onclick="rejoindreSesssion()">→ Rejoindre</button>
-    </div>
-    <p class="cjc-hint">Votre hôte vous partage un code à 8 caractères. Collez-le puis cliquez Rejoindre.</p>
-  </div>
-
-  <!-- ZONE JOURNAL COLLABORATIF -->
-  <div class="card collab-journal-card" id="collabJournalCard" style="display:none">
-    <div class="cjc-title" style="margin-bottom:14px">📒 Journal collaboratif partagé</div>
-    <div class="collab-toolbar">
-      <select id="collabJournal" class="cjc-input" style="max-width:180px">
-        <option value="AC">AC — Achats</option>
-        <option value="VE">VE — Ventes</option>
-        <option value="BQ">BQ — Banque</option>
-        <option value="CA">CA — Caisse</option>
-        <option value="OD">OD — Opérations Diverses</option>
-      </select>
-      <input type="date" id="collabDate" class="cjc-input" style="max-width:170px">
-      <input type="text" id="collabPiece" class="cjc-input" style="max-width:130px" placeholder="N° pièce">
-      <input type="text" id="collabLibelle" class="cjc-input" style="flex:1" placeholder="Libellé général…">
-    </div>
-    <div class="collab-lines-wrap">
-      <table class="et collab-et">
-        <thead><tr>
-          <th style="min-width:120px">Compte</th>
-          <th>Libellé</th>
-          <th style="min-width:110px;text-align:right">Débit (FCFA)</th>
-          <th style="min-width:110px;text-align:right">Crédit (FCFA)</th>
-          <th style="width:36px"></th>
-        </tr></thead>
-        <tbody id="collabLignesBody"></tbody>
-      </table>
-    </div>
-    <button class="add-line-btn" onclick="addCollabLigne()">＋ Ajouter une ligne</button>
-    <div class="bal-bar" style="margin-top:10px">
-      <div class="bal-item"><label>Débit</label><span class="val" id="collabDebit" style="color:#60a5fa">0</span></div>
-      <div class="bal-item"><label>Crédit</label><span class="val" id="collabCredit" style="color:#4ade80">0</span></div>
-      <div class="bal-item" style="margin-left:auto"><label>Solde</label><span class="val bok" id="collabSolde">0</span></div>
-    </div>
-    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
-      <button class="btn btn-sm-wire" onclick="syncCollabState()">↻ Synchroniser</button>
-      <button class="btn btn-ink" onclick="validerEcritureCollab()">✓ Valider et enregistrer</button>
-    </div>
-  </div>
-
-  <!-- CHAT TEXT + APPEL VIDÉO -->
-  <div class="collab-comms" id="collabComms" style="display:none">
-    <!-- Appel vidéo -->
-    <div class="collab-video-panel">
-      <div class="cvp-header">
-        <span class="cvp-title">📹 Appel vidéo</span>
-        <div class="cvp-controls">
-          <button class="cvp-btn" id="btnToggleCam" onclick="toggleCamera()" title="Caméra">📷</button>
-          <button class="cvp-btn" id="btnToggleMic" onclick="toggleMic()" title="Micro">🎤</button>
-          <button class="cvp-btn cvp-btn-call" id="btnStartCall" onclick="startVideoCall()">▶ Démarrer appel</button>
-          <button class="cvp-btn cvp-btn-stop" id="btnStopCall" onclick="stopVideoCall()" style="display:none">⏹ Terminer</button>
-        </div>
-      </div>
-      <div class="collab-videos" id="collabVideos">
-        <div class="video-tile local-tile">
-          <video id="localVideo" autoplay muted playsinline></video>
-          <div class="video-label">Vous</div>
-        </div>
-        <!-- Les vidéos distantes sont insérées dynamiquement -->
-      </div>
-    </div>
-
-    <!-- Chat texte -->
-    <div class="collab-chat-panel">
-      <div class="ccp-header">💬 Messagerie équipe</div>
-      <div class="collab-chat-messages" id="collabChatMessages"></div>
-      <div class="collab-chat-input-row">
-        <input type="text" id="collabChatInput" class="cjc-input" placeholder="Message à l'équipe…"
-               onkeydown="if(event.key==='Enter')sendCollabMessage()">
-        <button class="btn btn-ink" onclick="sendCollabMessage()">↑</button>
-      </div>
-    </div>
-  </div>
-</div>
-
   <div class="main">
 
-    <!-- DASHBOARD — et aussi VUE COLLABORATION ci-dessous -->
-
+    <!-- DASHBOARD -->
     <div class="view active" id="view-dashboard">
       <div class="ph">
         <div><h1>Tableau de bord</h1><p>SYSCOHADA Révisé 2023 — Assistant comptable expert</p></div>
@@ -1010,6 +902,12 @@
   </div>
 </div>
 </div>
+
+<!-- VUE COLLABORATION — contenu généré par collab.js -->
+<div class="view" id="view-collaboration"></div>
+
 <script type="module" src="as.js"></script>
+<script type="module" src="collab.js"></script>
 </body>
+</html>
 </html>
