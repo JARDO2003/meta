@@ -1708,9 +1708,7 @@ body { font-family:var(--font-body); background:var(--paper); color:var(--ink); 
   font-size:10px; color:var(--warm); font-family:var(--font-mono);
   background:rgba(212,168,83,.08); border:1px solid rgba(212,168,83,.2);
   border-radius:4px; padding:2px 8px;
-}
-
-/* Barre de statut session */
+}/* Barre de statut session */
 .collab-status-bar {
   display:flex; align-items:center; gap:10px; flex-wrap:wrap;
   background:var(--ink); border:1px solid rgba(212,168,83,.25);
