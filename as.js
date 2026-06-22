@@ -228,7 +228,14 @@ function updateSubscriptionBadge(sub) {
 }
 
 function showPremiumPaywall(sub) {
-  // Paywall désactivé — accès libre sans abonnement
+  const wall = document.getElementById('premiumPaywall');
+  if (!wall) return;
+  const remainEl = document.getElementById('paywallTrialInfo');
+  if (remainEl && sub?.type === 'expired') {
+    remainEl.textContent = 'Votre essai gratuit de 12 heures est terminé. Passez à COMEO Premium pour continuer.';
+  }
+  wall.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
 }
 
 function hidePremiumPaywall() {
