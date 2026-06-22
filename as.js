@@ -7887,6 +7887,869 @@ async function doForgotPassword() {
     toast('Erreur : ' + e.message, 'error');
   }
 }
+
+/* Barre de statut session */
+.collab-status-bar {
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  background:var(--ink); border:1px solid rgba(212,168,83,.25);
+  border-radius:var(--r); padding:10px 16px; margin-bottom:16px;
+}
+.csb-left { display:flex; align-items:center; gap:8px; flex:1; min-width:0; }
+.csb-dot {
+  width:10px; height:10px; border-radius:50%; flex-shrink:0;
+  background:#4ade80; box-shadow:0 0 8px rgba(74,222,128,.5);
+  animation:csbPulse 2s ease-in-out infinite;
+}
+.csb-dot.waiting { background:var(--warm); box-shadow:0 0 8px rgba(212,168,83,.5); }
+@keyframes csbPulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+.csb-code {
+  font-family:var(--font-mono); font-size:18px; font-weight:700;
+  color:var(--warm); letter-spacing:.12em;
+  background:rgba(212,168,83,.1); border:1px solid rgba(212,168,83,.2);
+  border-radius:4px; padding:3px 10px;
+}
+.csb-copy {
+  background:transparent; border:1px solid rgba(255,255,255,.12);
+  color:rgba(255,255,255,.5); border-radius:4px; padding:4px 10px;
+  font-size:11px; cursor:pointer; white-space:nowrap;
+}
+.csb-copy:hover { background:rgba(255,255,255,.06); color:#fff; }
+.csb-peers { display:flex; gap:6px; flex-wrap:wrap; }
+.csb-peer {
+  display:flex; align-items:center; gap:5px;
+  background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1);
+  border-radius:20px; padding:4px 10px; font-size:11px; color:rgba(255,255,255,.7);
+}
+.csb-peer-dot { width:7px; height:7px; border-radius:50%; background:#4ade80; }
+.csb-quit {
+  background:rgba(220,38,38,.1); border:1px solid rgba(220,38,38,.25);
+  color:#fca5a5; border-radius:4px; padding:5px 12px; font-size:12px; cursor:pointer;
+  flex-shrink:0;
+}
+.csb-quit:hover { background:rgba(220,38,38,.2); }
+
+/* Carte rejoindre */
+.collab-join-card {
+  background:var(--surface); border:1.5px dashed var(--line2);
+  padding:28px; margin-bottom:16px;
+}
+.cjc-title {
+  font-family:var(--font-display); font-size:16px; font-weight:700;
+  color:var(--ink); margin-bottom:14px;
+}
+.cjc-row { display:flex; gap:8px; margin-bottom:10px; align-items:center; }
+.cjc-input {
+  flex:1; background:var(--surface2); border:1.5px solid var(--line);
+  border-radius:var(--rs); color:var(--ink); padding:9px 12px;
+  font-size:13px; font-family:var(--font-body); outline:none;
+  transition:border-color .15s;
+}
+.cjc-input:focus { border-color:var(--warm); }
+.cjc-hint { font-size:11px; color:var(--muted); }
+
+/* Journal collaboratif */
+.collab-journal-card { background:var(--surface); margin-bottom:16px; }
+.collab-toolbar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+.collab-lines-wrap { overflow-x:auto; border:1px solid var(--line); border-radius:var(--rs); }
+.collab-et { background:var(--surface2); }
+
+/* Zone communications */
+.collab-comms {
+  display:grid; grid-template-columns:1fr 360px; gap:16px;
+  height:480px;
+}
+@media(max-width:900px){ .collab-comms { grid-template-columns:1fr; height:auto; } }
+
+/* Panel vidéo */
+.collab-video-panel {
+  background:var(--ink); border:1px solid rgba(255,255,255,.08);
+  border-radius:var(--r); display:flex; flex-direction:column; overflow:hidden;
+}
+.cvp-header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:12px 14px; border-bottom:1px solid rgba(255,255,255,.08); flex-shrink:0;
+}
+.cvp-title { font-family:var(--font-display); font-size:13px; font-weight:700; color:var(--warm); }
+.cvp-controls { display:flex; gap:6px; align-items:center; }
+.cvp-btn {
+  background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12);
+  color:rgba(255,255,255,.7); border-radius:5px; padding:5px 10px;
+  font-size:12px; cursor:pointer; transition:all .14s;
+}
+.cvp-btn:hover { background:rgba(255,255,255,.12); color:#fff; }
+.cvp-btn.active { background:rgba(220,38,38,.15); border-color:rgba(220,38,38,.3); color:#fca5a5; }
+.cvp-btn-call {
+  background:rgba(34,197,94,.15); border-color:rgba(34,197,94,.3); color:#4ade80;
+}
+.cvp-btn-call:hover { background:rgba(34,197,94,.25); }
+.cvp-btn-stop {
+  background:rgba(220,38,38,.15); border-color:rgba(220,38,38,.3); color:#fca5a5;
+}
+.collab-videos {
+  flex:1; display:flex; flex-wrap:wrap; gap:8px;
+  padding:12px; align-content:flex-start; overflow-y:auto;
+  background:#080a12;
+}
+.video-tile {
+  position:relative; background:#0d1020; border-radius:8px; overflow:hidden;
+  border:1px solid rgba(255,255,255,.08); flex:1; min-width:160px; min-height:120px;
+}
+.video-tile video { width:100%; height:100%; object-fit:cover; display:block; }
+.video-label {
+  position:absolute; bottom:0; left:0; right:0;
+  background:linear-gradient(transparent, rgba(0,0,0,.7));
+  padding:18px 8px 6px; font-size:11px; color:rgba(255,255,255,.8);
+  font-family:var(--font-mono);
+}
+.local-tile { border-color:rgba(212,168,83,.3); }
+.remote-tile { border-color:rgba(99,102,241,.3); }
+.video-tile.no-video {
+  display:flex; align-items:center; justify-content:center; min-height:120px;
+}
+.video-avatar {
+  width:56px; height:56px; border-radius:50%; background:rgba(212,168,83,.2);
+  display:flex; align-items:center; justify-content:center;
+  font-size:22px; color:var(--warm); font-weight:700; font-family:var(--font-display);
+  border:2px solid rgba(212,168,83,.3);
+}
+
+/* Panel chat */
+.collab-chat-panel {
+  background:var(--ink); border:1px solid rgba(255,255,255,.08);
+  border-radius:var(--r); display:flex; flex-direction:column; overflow:hidden;
+}
+.ccp-header {
+  padding:12px 14px; border-bottom:1px solid rgba(255,255,255,.08);
+  font-family:var(--font-display); font-size:13px; font-weight:700; color:var(--warm);
+  flex-shrink:0;
+}
+.collab-chat-messages {
+  flex:1; overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:8px;
+  background:#0d0f1a;
+}
+.collab-chat-msg {
+  display:flex; flex-direction:column; gap:2px; max-width:85%;
+}
+.collab-chat-msg.mine { align-self:flex-end; align-items:flex-end; }
+.collab-chat-msg.theirs { align-self:flex-start; align-items:flex-start; }
+.ccm-name { font-size:9px; font-weight:600; text-transform:uppercase; letter-spacing:.1em; }
+.mine .ccm-name { color:var(--warm); }
+.theirs .ccm-name { color:#93c5fd; }
+.ccm-bubble {
+  border-radius:10px; padding:7px 12px; font-size:12px; max-width:100%; word-break:break-word;
+}
+.mine .ccm-bubble { background:rgba(212,168,83,.18); color:#f0ece3; border-bottom-right-radius:3px; }
+.theirs .ccm-bubble { background:rgba(255,255,255,.07); color:rgba(255,255,255,.8); border-bottom-left-radius:3px; }
+.ccm-time { font-size:9px; color:rgba(255,255,255,.25); font-family:var(--font-mono); }
+.collab-chat-input-row {
+  display:flex; gap:6px; padding:10px 12px;
+  border-top:1px solid rgba(255,255,255,.08); flex-shrink:0;
+}
+.collab-typing { font-size:10px; color:rgba(255,255,255,.3); padding:0 12px 6px; font-style:italic; }
+
+/* Notification collaborateur connecté */
+.collab-notif {
+  position:fixed; bottom:80px; right:20px; z-index:500;
+  background:var(--ink); border:1px solid rgba(34,197,94,.3);
+  border-radius:10px; padding:12px 16px; font-size:12px; color:#4ade80;
+  box-shadow:0 4px 20px rgba(0,0,0,.3); display:none; max-width:280px;
+  animation:slideInRight .3s ease;
+}
+@keyframes slideInRight { from{transform:translateX(40px);opacity:0} to{transform:none;opacity:1} }
+
+/* Indicateur de frappe distante dans le journal */
+.collab-editing-indicator {
+  display:inline-flex; align-items:center; gap:5px;
+  font-size:10px; color:var(--warm); font-family:var(--font-mono);
+  background:rgba(212,168,83,.08); border:1px solid rgba(212,168,83,.2);
+  border-radius:4px; padding:2px 8px;
+}
+
+3. as.js — Ajouts (avant les window.xxx expositions en bas du fichier)
+javascript// ══════════════════════════════════════════════════════
+// COLLABORATION WEBRTC — Jusqu'à 6 collaborateurs
+// Signalisation via Firebase Firestore (sessions/{code})
+// ══════════════════════════════════════════════════════
+
+const COLLAB_MAX_PEERS = 6;
+let collabSessionCode = null;
+let collabRole = null; // 'host' | 'guest'
+let collabMyId = null;
+let collabPeers = {}; // { peerId: { pc, dataChannel, name } }
+let collabLocalStream = null;
+let collabCallActive = false;
+let collabState = { lignes: [], journal: 'AC', date: '', piece: '', libelle: '' };
+let collabUnsubscribeFns = [];
+let collabCamOn = true;
+let collabMicOn = true;
+let collabMyName = '';
+
+// Config ICE STUN
+const COLLAB_ICE_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+];
+
+// ── Utilitaires ──────────────────────────────────────
+function genCollabCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  return Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+}
+
+function genCollabId() {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+function collabTime() {
+  const d = new Date();
+  return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
+}
+
+// ── Session Firestore helpers ────────────────────────
+async function collabRef(path) {
+  await waitForFirebase();
+  const parts = path.split('/');
+  if (parts.length === 2) return window._fbDoc(window._db, parts[0], parts[1]);
+  return window._fbDoc(window._db, parts[0], parts[1], parts[2], parts[3]);
+}
+
+async function collabSetDoc(path, data, merge = true) {
+  const ref = await collabRef(path);
+  return window._fbSetDoc(ref, data, merge ? { merge: true } : undefined);
+}
+
+async function collabGetDoc(path) {
+  const ref = await collabRef(path);
+  return window._fbGetDoc(ref);
+}
+
+function collabOnSnap(path, cb) {
+  // Utilise onSnapshot depuis Firestore
+  const { onSnapshot, doc } = window._collabImports || {};
+  if (!onSnapshot) return () => {};
+  const ref = doc(window._db, ...path.split('/'));
+  const unsub = onSnapshot(ref, cb);
+  collabUnsubscribeFns.push(unsub);
+  return unsub;
+}
+
+async function collabAddDoc(col, data) {
+  await waitForFirebase();
+  return window._fbAddDoc(window._fbCollection(window._db, col), data);
+}
+
+// ── Importer onSnapshot (manquant dans les imports du module) ──
+// On le charge dynamiquement au démarrage collab
+async function loadCollabImports() {
+  if (window._collabImports) return;
+  const { onSnapshot, doc, collection } = await import(
+    'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js'
+  );
+  window._collabImports = { onSnapshot, doc, collection };
+}
+
+// ── Créer une session (hôte) ─────────────────────────
+async function creerSessionCollaboration() {
+  if (!requireSubscriptionAccess()) return;
+  await loadCollabImports();
+
+  if (collabSessionCode) {
+    toast('Vous êtes déjà dans une session : ' + collabSessionCode, 'info');
+    return;
+  }
+
+  collabMyId = genCollabId();
+  collabMyName = currentProfile?.company || currentProfile?.email?.split('@')[0] || 'Hôte';
+  collabSessionCode = genCollabCode();
+  collabRole = 'host';
+
+  // Écrire la session dans Firestore
+  try {
+    await collabSetDoc(`collab_sessions/${collabSessionCode}`, {
+      code: collabSessionCode,
+      hostId: collabMyId,
+      hostName: collabMyName,
+      createdAt: new Date().toISOString(),
+      peers: { [collabMyId]: { name: collabMyName, joinedAt: new Date().toISOString(), role: 'host' } },
+      state: collabState,
+      messages: [],
+    }, false);
+
+    toast(`Session créée ! Code : ${collabSessionCode}`, 'success');
+    collabAfficherUI();
+    collabEcouterSession();
+    collabEcouterSignaux();
+    collabEcouterMessages();
+    navigate('collaboration');
+  } catch (e) {
+    toast('Erreur création session : ' + e.message, 'error');
+  }
+}
+
+// ── Rejoindre une session (invité) ───────────────────
+async function rejoindreSesssion() {
+  if (!requireSubscriptionAccess()) return;
+  await loadCollabImports();
+
+  const code = (document.getElementById('collabCodeInput')?.value || '').trim().toUpperCase();
+  if (code.length !== 8) { toast('Code invalide (8 caractères requis)', 'error'); return; }
+  if (collabSessionCode) { toast('Quittez la session actuelle d\'abord', 'error'); return; }
+
+  // Vérifier que la session existe
+  try {
+    const snap = await collabGetDoc(`collab_sessions/${code}`);
+    if (!snap.exists()) { toast('Session introuvable ou expirée', 'error'); return; }
+
+    const sessionData = snap.data();
+    const nbPeers = Object.keys(sessionData.peers || {}).length;
+    if (nbPeers >= COLLAB_MAX_PEERS) { toast('Session complète (6 collaborateurs max)', 'error'); return; }
+
+    collabMyId = genCollabId();
+    collabMyName = currentProfile?.company || currentProfile?.email?.split('@')[0] || 'Invité';
+    collabSessionCode = code;
+    collabRole = 'guest';
+
+    // S'enregistrer dans la session
+    await collabSetDoc(`collab_sessions/${code}`, {
+      peers: { [collabMyId]: { name: collabMyName, joinedAt: new Date().toISOString(), role: 'guest' } }
+    });
+
+    // Charger l'état partagé
+    collabState = sessionData.state || collabState;
+    collabRenderLignes();
+
+    toast(`Connecté à la session ${code} !`, 'success');
+    collabAfficherUI();
+    collabEcouterSession();
+    collabEcouterSignaux();
+    collabEcouterMessages();
+
+    // Initier WebRTC vers l'hôte et les peers existants
+    const hostId = sessionData.hostId;
+    if (hostId && hostId !== collabMyId) {
+      await collabInitierPeerConnection(hostId, true);
+    }
+    Object.keys(sessionData.peers || {}).forEach(async (pid) => {
+      if (pid !== collabMyId && pid !== hostId) {
+        await collabInitierPeerConnection(pid, true);
+      }
+    });
+
+    navigate('collaboration');
+  } catch (e) {
+    toast('Erreur : ' + e.message, 'error');
+  }
+}
+
+// ── PeerConnection WebRTC ────────────────────────────
+async function collabInitierPeerConnection(remotePeerId, initOffer) {
+  if (collabPeers[remotePeerId]) return; // déjà connecté
+
+  const pc = new RTCPeerConnection({ iceServers: COLLAB_ICE_SERVERS });
+  const peerName = 'Collaborateur';
+  collabPeers[remotePeerId] = { pc, name: peerName };
+
+  // Ajouter les tracks locaux si l'appel est actif
+  if (collabLocalStream) {
+    collabLocalStream.getTracks().forEach(track => pc.addTrack(track, collabLocalStream));
+  }
+
+  // Data channel pour synchronisation état journal
+  let dc;
+  if (initOffer) {
+    dc = pc.createDataChannel('journal');
+    collabSetupDataChannel(dc, remotePeerId);
+    collabPeers[remotePeerId].dataChannel = dc;
+  } else {
+    pc.ondatachannel = (e) => {
+      collabSetupDataChannel(e.channel, remotePeerId);
+      collabPeers[remotePeerId].dataChannel = e.channel;
+    };
+  }
+
+  // Tracks distants (vidéo/audio)
+  pc.ontrack = (e) => {
+    collabAfficherVideoDistant(remotePeerId, e.streams[0], peerName);
+  };
+
+  // ICE candidates → Firestore
+  pc.onicecandidate = async (e) => {
+    if (!e.candidate) return;
+    await collabSetDoc(
+      `collab_sessions/${collabSessionCode}`,
+      { [`signals.${collabMyId}_${remotePeerId}_ice_${Date.now()}`]: {
+        type: 'ice', from: collabMyId, to: remotePeerId,
+        candidate: JSON.stringify(e.candidate)
+      }}
+    );
+  };
+
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+      collabRetirerPeer(remotePeerId);
+    }
+  };
+
+  if (initOffer) {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    await collabSetDoc(`collab_sessions/${collabSessionCode}`, {
+      [`signals.${collabMyId}_to_${remotePeerId}`]: {
+        type: 'offer', from: collabMyId, to: remotePeerId,
+        sdp: JSON.stringify(offer), at: Date.now()
+      }
+    });
+  }
+}
+
+// ── Data channel : sync état journal ─────────────────
+function collabSetupDataChannel(dc, peerId) {
+  dc.onopen = () => {
+    // Envoyer l'état courant à la connexion
+    dc.send(JSON.stringify({ type: 'state', state: collabState, from: collabMyId, name: collabMyName }));
+  };
+  dc.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'state') {
+        collabState = msg.state;
+        collabRenderLignes();
+        collabShowEditingIndicator(msg.name || 'Collaborateur');
+      } else if (msg.type === 'chat') {
+        collabAfficherMessage({ name: msg.name, text: msg.text, time: msg.time, mine: false });
+      }
+    } catch {}
+  };
+}
+
+// ── Écouter les signaux WebRTC dans Firestore ─────────
+function collabEcouterSignaux() {
+  const { onSnapshot, doc } = window._collabImports;
+  const ref = doc(window._db, 'collab_sessions', collabSessionCode);
+  const unsub = onSnapshot(ref, async (snap) => {
+    if (!snap.exists()) return;
+    const data = snap.data();
+    const signals = data.signals || {};
+
+    for (const [key, sig] of Object.entries(signals)) {
+      if (sig.to !== collabMyId) continue; // pas pour nous
+
+      const from = sig.from;
+      if (!from || from === collabMyId) continue;
+
+      if (sig.type === 'offer') {
+        // Créer la PC côté receveur
+        if (!collabPeers[from]) await collabInitierPeerConnection(from, false);
+        const pc = collabPeers[from]?.pc;
+        if (!pc) continue;
+        await pc.setRemoteDescription(JSON.parse(sig.sdp));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        await collabSetDoc(`collab_sessions/${collabSessionCode}`, {
+          [`signals.${collabMyId}_to_${from}`]: {
+            type: 'answer', from: collabMyId, to: from,
+            sdp: JSON.stringify(answer), at: Date.now()
+          }
+        });
+      } else if (sig.type === 'answer') {
+        const pc = collabPeers[from]?.pc;
+        if (pc && pc.signalingState !== 'stable') {
+          await pc.setRemoteDescription(JSON.parse(sig.sdp));
+        }
+      } else if (sig.type === 'ice') {
+        const pc = collabPeers[from]?.pc;
+        if (pc) {
+          try { await pc.addIceCandidate(JSON.parse(sig.candidate)); } catch {}
+        }
+      }
+    }
+  });
+  collabUnsubscribeFns.push(unsub);
+}
+
+// ── Écouter l'état de la session (peers connectés) ───
+function collabEcouterSession() {
+  const { onSnapshot, doc } = window._collabImports;
+  const ref = doc(window._db, 'collab_sessions', collabSessionCode);
+  const unsub = onSnapshot(ref, (snap) => {
+    if (!snap.exists()) { quitterSession(); return; }
+    const data = snap.data();
+    // Afficher les peers connectés dans la barre
+    collabAfficherPeers(data.peers || {});
+    // Sync état journal si diff
+    if (data.state && JSON.stringify(data.state) !== JSON.stringify(collabState)) {
+      collabState = data.state;
+      collabRenderLignes();
+    }
+  });
+  collabUnsubscribeFns.push(unsub);
+}
+
+// ── Écouter les messages chat via Firestore ───────────
+function collabEcouterMessages() {
+  const { onSnapshot, doc } = window._collabImports;
+  const ref = doc(window._db, 'collab_sessions', collabSessionCode);
+  const unsub = onSnapshot(ref, (snap) => {
+    if (!snap.exists()) return;
+    const msgs = snap.data().messages || [];
+    const container = document.getElementById('collabChatMessages');
+    if (!container) return;
+    // Render seulement les nouveaux messages
+    const current = container.querySelectorAll('.collab-chat-msg').length;
+    if (msgs.length > current) {
+      msgs.slice(current).forEach(m => {
+        collabAfficherMessage({ ...m, mine: m.senderId === collabMyId });
+      });
+    }
+  });
+  collabUnsubscribeFns.push(unsub);
+}
+
+// ── Broadcast état journal à tous les peers ───────────
+function collabBroadcastState() {
+  const payload = JSON.stringify({ type: 'state', state: collabState, from: collabMyId, name: collabMyName });
+  Object.values(collabPeers).forEach(({ dataChannel }) => {
+    if (dataChannel?.readyState === 'open') dataChannel.send(payload);
+  });
+  // Aussi dans Firestore pour les late-joiners
+  if (collabSessionCode) {
+    collabSetDoc(`collab_sessions/${collabSessionCode}`, { state: collabState }).catch(() => {});
+  }
+}
+
+// ── Journal collaboratif : lignes ────────────────────
+function addCollabLigne() {
+  collabState.lignes.push({ compte: '', libelle: '', debit: 0, credit: 0, id: genCollabId() });
+  collabRenderLignes();
+  collabBroadcastState();
+}
+
+function collabRenderLignes() {
+  const body = document.getElementById('collabLignesBody');
+  if (!body) return;
+  // Sync header fields
+  const j = document.getElementById('collabJournal');
+  const d = document.getElementById('collabDate');
+  const p = document.getElementById('collabPiece');
+  const l = document.getElementById('collabLibelle');
+  if (j) j.value = collabState.journal || 'AC';
+  if (d) d.value = collabState.date || '';
+  if (p) p.value = collabState.piece || '';
+  if (l) l.value = collabState.libelle || '';
+
+  body.innerHTML = (collabState.lignes || []).map((lg, i) => `
+    <tr>
+      <td><input class="et-input" value="${lg.compte || ''}" placeholder="N° compte"
+        oninput="collabUpdateLigne(${i},'compte',this.value)"></td>
+      <td><input class="et-input" value="${lg.libelle || ''}" placeholder="Libellé"
+        oninput="collabUpdateLigne(${i},'libelle',this.value)"></td>
+      <td><input class="et-input et-num" type="number" value="${lg.debit || ''}" placeholder="0"
+        oninput="collabUpdateLigne(${i},'debit',this.value)" style="text-align:right"></td>
+      <td><input class="et-input et-num" type="number" value="${lg.credit || ''}" placeholder="0"
+        oninput="collabUpdateLigne(${i},'credit',this.value)" style="text-align:right"></td>
+      <td><button class="rm-btn" onclick="collabRemoveLigne(${i})">✕</button></td>
+    </tr>
+  `).join('');
+  collabUpdateBalance();
+}
+
+function collabUpdateLigne(i, field, val) {
+  if (!collabState.lignes[i]) return;
+  collabState.lignes[i][field] = field === 'debit' || field === 'credit' ? parseFloat(val) || 0 : val;
+  collabUpdateBalance();
+  collabBroadcastState();
+}
+
+function collabRemoveLigne(i) {
+  collabState.lignes.splice(i, 1);
+  collabRenderLignes();
+  collabBroadcastState();
+}
+
+function collabUpdateBalance() {
+  let d = 0, c = 0;
+  (collabState.lignes || []).forEach(l => { d += +l.debit || 0; c += +l.credit || 0; });
+  const dEl = document.getElementById('collabDebit');
+  const cEl = document.getElementById('collabCredit');
+  const sEl = document.getElementById('collabSolde');
+  if (dEl) dEl.textContent = fmtNum(d);
+  if (cEl) cEl.textContent = fmtNum(c);
+  if (sEl) { sEl.textContent = fmtNum(Math.abs(d - c)); sEl.style.color = Math.abs(d-c) < 0.01 ? '#4ade80' : '#f87171'; }
+}
+
+// Sync depuis les champs header
+function syncCollabState() {
+  collabState.journal = document.getElementById('collabJournal')?.value || 'AC';
+  collabState.date = document.getElementById('collabDate')?.value || '';
+  collabState.piece = document.getElementById('collabPiece')?.value || '';
+  collabState.libelle = document.getElementById('collabLibelle')?.value || '';
+  collabBroadcastState();
+  toast('État synchronisé avec les collaborateurs', 'success');
+}
+
+// Valider et enregistrer l'écriture dans le journal principal
+async function validerEcritureCollab() {
+  const jnl = document.getElementById('collabJournal')?.value || 'AC';
+  const date = document.getElementById('collabDate')?.value || '';
+  const piece = document.getElementById('collabPiece')?.value || '';
+  const libelle = document.getElementById('collabLibelle')?.value || '';
+  const lignes = collabState.lignes || [];
+
+  if (!date) { toast('Date requise', 'error'); return; }
+  if (lignes.length < 2) { toast('Minimum 2 lignes requises', 'error'); return; }
+
+  let d = 0, c = 0;
+  lignes.forEach(l => { d += +l.debit || 0; c += +l.credit || 0; });
+  if (Math.abs(d - c) > 0.01) { toast('Écriture non équilibrée (Débit ≠ Crédit)', 'error'); return; }
+
+  const ecritures = lignes.map(lg => ({
+    date, journal: jnl, piece: piece || 'COLLAB-' + Date.now(),
+    libelle: lg.libelle || libelle,
+    compte: lg.compte,
+    debit: +lg.debit || 0, credit: +lg.credit || 0,
+    groupeId: 'collab_' + Date.now(),
+    createdAt: new Date().toISOString(),
+    source: 'collaboration',
+    collaborateurs: Object.values(collabPeers).map(p => p.name).concat([collabMyName]),
+  }));
+
+  try {
+    for (const e of ecritures) {
+      await window._fbAddDoc(window._fbCollection(window._db, 'ecritures', currentProfile.id, 'lignes'), e);
+    }
+    toast('✓ Écriture collaborative enregistrée dans le journal !', 'success');
+    collabState.lignes = [];
+    collabRenderLignes();
+    collabBroadcastState();
+    updateStats();
+    navigate('journal');
+  } catch (e) {
+    toast('Erreur : ' + e.message, 'error');
+  }
+}
+
+// ── Chat texte ────────────────────────────────────────
+async function sendCollabMessage() {
+  const input = document.getElementById('collabChatInput');
+  const text = (input?.value || '').trim();
+  if (!text || !collabSessionCode) return;
+  input.value = '';
+
+  const msg = {
+    senderId: collabMyId, name: collabMyName,
+    text, time: collabTime()
+  };
+
+  // Envoyer via data channel (temps réel)
+  const payload = JSON.stringify({ type: 'chat', ...msg });
+  Object.values(collabPeers).forEach(({ dataChannel }) => {
+    if (dataChannel?.readyState === 'open') dataChannel.send(payload);
+  });
+
+  // Afficher localement
+  collabAfficherMessage({ ...msg, mine: true });
+
+  // Persister dans Firestore
+  try {
+    const snap = await collabGetDoc(`collab_sessions/${collabSessionCode}`);
+    if (snap.exists()) {
+      const msgs = snap.data().messages || [];
+      msgs.push(msg);
+      await collabSetDoc(`collab_sessions/${collabSessionCode}`, { messages: msgs });
+    }
+  } catch {}
+}
+
+function collabAfficherMessage({ name, text, time, mine }) {
+  const container = document.getElementById('collabChatMessages');
+  if (!container) return;
+  const div = document.createElement('div');
+  div.className = `collab-chat-msg ${mine ? 'mine' : 'theirs'}`;
+  div.innerHTML = `
+    <span class="ccm-name">${mine ? 'Vous' : name}</span>
+    <div class="ccm-bubble">${text.replace(/</g,'&lt;')}</div>
+    <span class="ccm-time">${time}</span>
+  `;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+// ── Appel vidéo ────────────────────────────────────────
+async function startVideoCall() {
+  try {
+    collabLocalStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    const localVideo = document.getElementById('localVideo');
+    if (localVideo) localVideo.srcObject = collabLocalStream;
+
+    // Ajouter les tracks à toutes les PCs existantes
+    Object.values(collabPeers).forEach(({ pc }) => {
+      collabLocalStream.getTracks().forEach(track => pc.addTrack(track, collabLocalStream));
+    });
+
+    collabCallActive = true;
+    document.getElementById('btnStartCall').style.display = 'none';
+    document.getElementById('btnStopCall').style.display = '';
+    toast('Appel vidéo démarré', 'success');
+  } catch (e) {
+    toast('Accès caméra/micro refusé : ' + e.message, 'error');
+  }
+}
+
+function stopVideoCall() {
+  if (collabLocalStream) {
+    collabLocalStream.getTracks().forEach(t => t.stop());
+    collabLocalStream = null;
+  }
+  collabCallActive = false;
+  const lv = document.getElementById('localVideo');
+  if (lv) lv.srcObject = null;
+  document.getElementById('btnStartCall').style.display = '';
+  document.getElementById('btnStopCall').style.display = 'none';
+  // Retirer les tiles distantes
+  document.querySelectorAll('.remote-tile').forEach(t => t.remove());
+  toast('Appel vidéo terminé', 'info');
+}
+
+function toggleCamera() {
+  if (!collabLocalStream) return;
+  const vTrack = collabLocalStream.getVideoTracks()[0];
+  if (!vTrack) return;
+  collabCamOn = !collabCamOn;
+  vTrack.enabled = collabCamOn;
+  const btn = document.getElementById('btnToggleCam');
+  if (btn) { btn.textContent = collabCamOn ? '📷' : '🚫📷'; btn.classList.toggle('active', !collabCamOn); }
+}
+
+function toggleMic() {
+  if (!collabLocalStream) return;
+  const aTrack = collabLocalStream.getAudioTracks()[0];
+  if (!aTrack) return;
+  collabMicOn = !collabMicOn;
+  aTrack.enabled = collabMicOn;
+  const btn = document.getElementById('btnToggleMic');
+  if (btn) { btn.textContent = collabMicOn ? '🎤' : '🚫🎤'; btn.classList.toggle('active', !collabMicOn); }
+}
+
+function collabAfficherVideoDistant(peerId, stream, name) {
+  const container = document.getElementById('collabVideos');
+  if (!container) return;
+  let tile = document.getElementById('vt_' + peerId);
+  if (!tile) {
+    tile = document.createElement('div');
+    tile.id = 'vt_' + peerId;
+    tile.className = 'video-tile remote-tile';
+    tile.innerHTML = `<video id="rv_${peerId}" autoplay playsinline></video><div class="video-label">${name}</div>`;
+    container.appendChild(tile);
+  }
+  const vid = document.getElementById('rv_' + peerId);
+  if (vid) vid.srcObject = stream;
+}
+
+// ── UI helpers ─────────────────────────────────────────
+function collabAfficherUI() {
+  const statusBar = document.getElementById('collab-status-bar');
+  const joinCard = document.getElementById('collabJoinCard');
+  const journalCard = document.getElementById('collabJournalCard');
+  const comms = document.getElementById('collabComms');
+  const createBtn = document.getElementById('btnCreerSession');
+
+  if (statusBar) statusBar.style.display = 'flex';
+  if (joinCard) joinCard.style.display = 'none';
+  if (journalCard) journalCard.style.display = 'block';
+  if (comms) comms.style.display = 'grid';
+  if (createBtn) createBtn.style.display = 'none';
+
+  const csbCode = document.getElementById('csbCode');
+  const csbLabel = document.getElementById('csbLabel');
+  const csbDot = document.getElementById('csbDot');
+  if (csbCode) csbCode.textContent = collabSessionCode;
+  if (csbLabel) csbLabel.textContent = collabRole === 'host' ? 'Session active — vous êtes hôte' : 'Connecté à la session';
+  if (csbDot) csbDot.classList.toggle('waiting', collabRole === 'guest');
+
+  // Ajouter une ligne initiale
+  if (collabState.lignes.length === 0) addCollabLigne();
+  else collabRenderLignes();
+}
+
+function collabAfficherPeers(peers) {
+  const container = document.getElementById('csbPeers');
+  if (!container) return;
+  container.innerHTML = Object.entries(peers || {}).map(([id, p]) => `
+    <div class="csb-peer">
+      <div class="csb-peer-dot"></div>
+      <span>${p.name || 'Collaborateur'}</span>
+      ${p.role === 'host' ? '<span style="font-size:9px;opacity:.5">(hôte)</span>' : ''}
+    </div>
+  `).join('');
+}
+
+function copierCodeSession() {
+  if (!collabSessionCode) return;
+  navigator.clipboard.writeText(collabSessionCode).then(() => toast('Code copié !', 'success')).catch(() => {});
+}
+
+function collabShowEditingIndicator(name) {
+  const libEl = document.getElementById('collabLibelle');
+  if (!libEl) return;
+  // Flash temporaire dans le libellé
+  const old = libEl.style.borderColor;
+  libEl.style.borderColor = 'var(--warm)';
+  setTimeout(() => { libEl.style.borderColor = old; }, 1000);
+}
+
+function collabRetirerPeer(peerId) {
+  if (collabPeers[peerId]) {
+    try { collabPeers[peerId].pc?.close(); } catch {}
+    delete collabPeers[peerId];
+  }
+  const tile = document.getElementById('vt_' + peerId);
+  if (tile) tile.remove();
+  toast('Un collaborateur s\'est déconnecté', 'info');
+}
+
+async function quitterSession() {
+  // Nettoyage WebRTC
+  Object.entries(collabPeers).forEach(([id, { pc }]) => { try { pc.close(); } catch {} });
+  collabPeers = {};
+
+  // Arrêter médias
+  if (collabLocalStream) { collabLocalStream.getTracks().forEach(t => t.stop()); collabLocalStream = null; }
+
+  // Désabonner Firestore
+  collabUnsubscribeFns.forEach(u => { try { u(); } catch {} });
+  collabUnsubscribeFns = [];
+
+  // Retirer le peer de la session
+  if (collabSessionCode && collabMyId) {
+    try {
+      const snap = await collabGetDoc(`collab_sessions/${collabSessionCode}`);
+      if (snap.exists()) {
+        const peers = snap.data().peers || {};
+        delete peers[collabMyId];
+        await collabSetDoc(`collab_sessions/${collabSessionCode}`, { peers });
+      }
+    } catch {}
+  }
+
+  collabSessionCode = null;
+  collabRole = null;
+  collabMyId = null;
+  collabState = { lignes: [], journal: 'AC', date: '', piece: '', libelle: '' };
+
+  // Réinitialiser l'UI
+  const statusBar = document.getElementById('collab-status-bar');
+  const joinCard = document.getElementById('collabJoinCard');
+  const journalCard = document.getElementById('collabJournalCard');
+  const comms = document.getElementById('collabComms');
+  const createBtn = document.getElementById('btnCreerSession');
+  if (statusBar) statusBar.style.display = 'none';
+  if (joinCard) joinCard.style.display = 'block';
+  if (journalCard) journalCard.style.display = 'none';
+  if (comms) comms.style.display = 'none';
+  if (createBtn) createBtn.style.display = '';
+
+  toast('Session quittée', 'info');
+}
 window.doForgotPassword = doForgotPassword;
 window.openWavePayment = openWavePayment;
 window.claimWavePayment = claimWavePayment;
@@ -7946,6 +8809,20 @@ window.resetBalanceFiltre = resetBalanceFiltre;
 window.updateStats = updateStats;
 window.toggleMobileSidebar = toggleMobileSidebar;
 window.closeMobileSidebar = closeMobileSidebar;
+window.creerSessionCollaboration = creerSessionCollaboration;
+window.rejoindreSesssion = rejoindreSesssion;
+window.quitterSession = quitterSession;
+window.copierCodeSession = copierCodeSession;
+window.addCollabLigne = addCollabLigne;
+window.collabUpdateLigne = collabUpdateLigne;
+window.collabRemoveLigne = collabRemoveLigne;
+window.syncCollabState = syncCollabState;
+window.validerEcritureCollab = validerEcritureCollab;
+window.sendCollabMessage = sendCollabMessage;
+window.startVideoCall = startVideoCall;
+window.stopVideoCall = stopVideoCall;
+window.toggleCamera = toggleCamera;
+window.toggleMic = toggleMic;
 
 // ── Facturation ──
 window.openFactureModal = openFactureModal;
