@@ -225,8 +225,21 @@
   <div class="nav-item" onclick="navigate('tresorerie');closeMobileSidebar()"><span class="nav-icon">◎</span> Trésorerie</div>
 </div>
 <div class="sb-section">
-  <div class="sb-title">Actifs</div>
-  <div class="nav-item" onclick="navigate('immobilisations');closeMobileSidebar()"><span class="nav-icon">🏗</span> Immobilisations</div>
+  <div class="sb-title">Gestion RH</div>
+  <div class="nav-item" onclick="navigate('paie');closeMobileSidebar()"><span class="nav-icon">👤</span> Paie & Salaires</div>
+  <div class="nav-item" onclick="navigate('immobilisations');closeMobileSidebar()"><span class="nav-icon">🏗️</span> Immobilisations</div>
+</div>
+<div class="sb-section">
+  <div class="sb-title">Gestion</div>
+  <div class="nav-item" onclick="navigate('stocks');closeMobileSidebar()"><span class="nav-icon">📦</span> Stocks</div>
+  <div class="nav-item" onclick="navigate('rapprochement');closeMobileSidebar()"><span class="nav-icon">🏦</span> Rapprochement bancaire</div>
+  <div class="nav-item" onclick="navigate('budgets');closeMobileSidebar()"><span class="nav-icon">🎯</span> Budgets</div>
+  <div class="nav-item" onclick="navigate('lettrage');closeMobileSidebar()"><span class="nav-icon">🔗</span> Lettrage / Échéances</div>
+</div>
+<div class="sb-section">
+  <div class="sb-title">Fiscal</div>
+  <div class="nav-item" onclick="navigate('declarations');closeMobileSidebar()"><span class="nav-icon">📑</span> Déclarations fiscales</div>
+  <div class="nav-item" onclick="navigate('exercices');closeMobileSidebar()"><span class="nav-icon">🔄</span> Clôture exercice</div>
 </div>
 <div class="sb-section">
   <div class="sb-title">Référentiel</div>
@@ -795,193 +808,183 @@
       <div class="card" id="tresorerieContent"><div class="empty-state"><div class="icon">◎</div><p>Comptes de trésorerie (5xxx)</p></div></div>
     </div>
 
+    <!-- ═══════════════════ PAIE & SALAIRES ═══════════════════ -->
+    <div class="view" id="view-paie">
+      <div class="ph">
+        <div><h1>Paie & Salaires</h1><p>Bulletins de salaire · CNPS · IR · Déclarations sociales</p></div>
+        <div class="ph-actions">
+          <button class="btn btn-sm-wire" onclick="exportBulletinPDF()">↓ Bulletins PDF</button>
+          <button class="btn btn-ink" onclick="openPaieModal()">+ Nouveau salarié</button>
+        </div>
+      </div>
+      <!-- KPIs paie -->
+      <div class="kpi-grid" style="grid-template-columns:repeat(5,1fr);margin-bottom:16px">
+        <div class="kpi"><div class="kpi-label">Masse salariale</div><div class="kpi-value" id="paie-kpi-masse" style="color:var(--warm)">0</div><div class="kpi-sub">FCFA brut</div></div>
+        <div class="kpi"><div class="kpi-label">Net à payer</div><div class="kpi-value" id="paie-kpi-net" style="color:var(--green)">0</div><div class="kpi-sub">FCFA</div></div>
+        <div class="kpi"><div class="kpi-label">CNPS salarial</div><div class="kpi-value" id="paie-kpi-cnps-sal" style="color:var(--rust)">0</div><div class="kpi-sub">7,7%</div></div>
+        <div class="kpi"><div class="kpi-label">CNPS patronal</div><div class="kpi-value" id="paie-kpi-cnps-pat" style="color:var(--rust)">0</div><div class="kpi-sub">16%+TPA+CN</div></div>
+        <div class="kpi"><div class="kpi-label">IR (retenu)</div><div class="kpi-value" id="paie-kpi-ir" style="color:var(--muted)">0</div><div class="kpi-sub">Impôt sur salaire</div></div>
+      </div>
+      <div class="card" id="paieContent">
+        <div class="empty-state"><div class="icon">👤</div><p>Aucun salarié. Cliquez sur "+ Nouveau salarié" pour commencer.</p></div>
+      </div>
+    </div>
+
     <!-- ═══════════════════ IMMOBILISATIONS ═══════════════════ -->
     <div class="view" id="view-immobilisations">
       <div class="ph">
-        <div><h1>Immobilisations</h1><p>Tableau des amortissements SYSCOHADA — UEMOA</p></div>
+        <div><h1>Immobilisations</h1><p>Registre · Amortissements linéaires / dégressifs · Cessions</p></div>
         <div class="ph-actions">
-          <button class="btn btn-sm-wire" onclick="genererDotationsAnnuelles()">⚡ Générer dotations exercice</button>
-          <button class="btn btn-sm-wire" onclick="exportImmoPDF()">⎙ Exporter PDF</button>
-          <button class="btn btn-ink" onclick="openImmoModal()">+ Nouvelle immobilisation</button>
+          <button class="btn btn-sm-wire" onclick="exportTableauAmortissement()">↓ Tableau PDF</button>
+          <button class="btn btn-ink" onclick="openImmobModal()">+ Ajouter immobilisation</button>
         </div>
       </div>
-
-      <!-- KPIs -->
-      <div class="immo-kpi-grid">
-        <div class="kpi"><div class="kpi-label">Valeur brute totale</div><div class="kpi-value" id="immo-kpi-brut" style="color:var(--warm)">0</div><div class="kpi-sub">FCFA</div></div>
-        <div class="kpi"><div class="kpi-label">Amort. cumulés</div><div class="kpi-value" id="immo-kpi-amort" style="color:var(--rust)">0</div><div class="kpi-sub">FCFA</div></div>
-        <div class="kpi"><div class="kpi-label">Valeur nette (VNC)</div><div class="kpi-value" id="immo-kpi-vnc" style="color:var(--teal)">0</div><div class="kpi-sub">FCFA</div></div>
-        <div class="kpi"><div class="kpi-label">Dotation exercice</div><div class="kpi-value" id="immo-kpi-dotation" style="color:var(--blue)">0</div><div class="kpi-sub">FCFA / an</div></div>
-        <div class="kpi"><div class="kpi-label">Nb immobilisations</div><div class="kpi-value" id="immo-kpi-nb">0</div><div class="kpi-sub">actifs</div></div>
+      <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+        <div class="kpi"><div class="kpi-label">Valeur brute</div><div class="kpi-value" id="immob-kpi-brut" style="color:var(--warm)">0</div><div class="kpi-sub">FCFA total</div></div>
+        <div class="kpi"><div class="kpi-label">Amort. cumulés</div><div class="kpi-value" id="immob-kpi-amort" style="color:var(--rust)">0</div><div class="kpi-sub">FCFA</div></div>
+        <div class="kpi"><div class="kpi-label">Valeur nette</div><div class="kpi-value" id="immob-kpi-net" style="color:var(--green)">0</div><div class="kpi-sub">VNC</div></div>
+        <div class="kpi"><div class="kpi-label">Dot. exercice</div><div class="kpi-value" id="immob-kpi-dot" style="color:var(--blue)">0</div><div class="kpi-sub">681 FCFA</div></div>
       </div>
-
-      <!-- Filtres -->
-      <div class="filtre-periode-bar">
-        <label>Catégorie</label>
-        <select id="immo-filter-cat" onchange="renderImmobilisations()">
-          <option value="">Toutes</option>
-          <option value="incorporelle">Incorporelles</option>
-          <option value="batiment">Bâtiments</option>
-          <option value="materiel">Matériel &amp; outillage</option>
-          <option value="mobilier">Mobilier de bureau</option>
-          <option value="transport">Matériel de transport</option>
-          <option value="informatique">Matériel informatique</option>
-          <option value="autre">Autres</option>
-        </select>
-        <label>Méthode</label>
-        <select id="immo-filter-methode" onchange="renderImmobilisations()">
-          <option value="">Toutes</option>
-          <option value="lineaire">Linéaire</option>
-          <option value="degressif">Dégressif</option>
-        </select>
-        <input type="text" class="search-input" id="immo-search" placeholder="Désignation, compte…" oninput="renderImmobilisations()" style="flex:1;min-width:160px">
-        <button class="btn-filtre-reset" onclick="resetImmoFiltre()">✕</button>
-      </div>
-
-      <!-- Tableau -->
-      <div class="card" style="padding:0">
-        <div class="immo-table-wrap">
-          <table class="immo-table">
-            <thead><tr>
-              <th>Désignation</th>
-              <th>Catégorie</th>
-              <th>Compte</th>
-              <th class="r">Date acquisition</th>
-              <th class="r">Valeur brute</th>
-              <th class="r">Durée</th>
-              <th class="r">Méthode</th>
-              <th class="r">Amort. cumulé</th>
-              <th class="r">VNC</th>
-              <th class="r">Taux</th>
-              <th class="r">Dotation/an</th>
-              <th>Actions</th>
-            </tr></thead>
-            <tbody id="immoBody">
-              <tr><td colspan="12"><div class="empty-state"><div class="icon">🏗</div><p>Aucune immobilisation enregistrée</p></div></td></tr>
-            </tbody>
-          </table>
-        </div>
+      <div class="card" id="immobContent">
+        <div class="empty-state"><div class="icon">🏗️</div><p>Aucune immobilisation enregistrée.</p></div>
       </div>
     </div>
 
-    <!-- MODAL NOUVELLE IMMOBILISATION -->
-    <div id="immoModal" class="modal-overlay" style="display:none">
-      <div class="modal-box">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-          <div class="modal-title" id="immoModalTitle">Nouvelle immobilisation</div>
-          <button class="btn-modal-cancel" onclick="closeImmoModal()">✕</button>
+    <!-- ═══════════════════ STOCKS ═══════════════════ -->
+    <div class="view" id="view-stocks">
+      <div class="ph">
+        <div><h1>Gestion des stocks</h1><p>Entrées / Sorties · Valorisation CMUP · Inventaire</p></div>
+        <div class="ph-actions">
+          <button class="btn btn-sm-wire" onclick="exportInventairePDF()">↓ Inventaire PDF</button>
+          <button class="btn btn-ink" onclick="openStockModal()">+ Mouvement de stock</button>
         </div>
-
-        <div class="fg c3" style="margin-bottom:12px">
-          <div class="field">
-            <label>Catégorie *</label>
-            <select id="immo-cat" onchange="immoAutoCompte()">
-              <option value="incorporelle">Incorporelle (21x)</option>
-              <option value="batiment">Bâtiment (23x)</option>
-              <option value="materiel">Matériel &amp; outillage (241x)</option>
-              <option value="informatique">Matériel informatique (2442)</option>
-              <option value="mobilier">Mobilier de bureau (2444)</option>
-              <option value="transport">Matériel de transport (245x)</option>
-              <option value="autre">Autre (24x)</option>
-            </select>
-          </div>
-          <div class="field">
-            <label>Compte d'immobilisation *</label>
-            <input type="text" id="immo-compte" placeholder="ex: 2444" maxlength="6">
-          </div>
-          <div class="field">
-            <label>Compte amortissement *</label>
-            <input type="text" id="immo-compte-amort" placeholder="ex: 2844" maxlength="6">
-          </div>
-        </div>
-
-        <div class="fg" style="margin-bottom:12px">
-          <div class="field" style="flex:2">
-            <label>Désignation *</label>
-            <input type="text" id="immo-designation" placeholder="ex: Ordinateur portable Dell XPS">
-          </div>
-          <div class="field">
-            <label>N° inventaire</label>
-            <input type="text" id="immo-num-inv" placeholder="IMM-001">
-          </div>
-        </div>
-
-        <div class="fg c3" style="margin-bottom:12px">
-          <div class="field">
-            <label>Date acquisition *</label>
-            <input type="date" id="immo-date-acq">
-          </div>
-          <div class="field">
-            <label>Valeur brute HT (FCFA) *</label>
-            <input type="number" id="immo-valeur-brute" placeholder="0" min="0" oninput="immoCalcPreview()">
-          </div>
-          <div class="field">
-            <label>Fournisseur</label>
-            <input type="text" id="immo-fournisseur" placeholder="Nom du fournisseur">
-          </div>
-        </div>
-
-        <div class="fg c3" style="margin-bottom:12px">
-          <div class="field">
-            <label>Méthode amortissement</label>
-            <select id="immo-methode" onchange="immoCalcPreview()">
-              <option value="lineaire">Linéaire (recommandé SYSCOHADA)</option>
-              <option value="degressif">Dégressif</option>
-            </select>
-          </div>
-          <div class="field">
-            <label>Durée (années) *</label>
-            <select id="immo-duree" onchange="immoCalcPreview()">
-              <option value="2">2 ans — Informatique rapide</option>
-              <option value="3">3 ans — Informatique standard</option>
-              <option value="4">4 ans</option>
-              <option value="5" selected>5 ans — Matériel &amp; outillage</option>
-              <option value="7">7 ans</option>
-              <option value="8">8 ans</option>
-              <option value="10">10 ans — Mobilier, véhicules</option>
-              <option value="15">15 ans</option>
-              <option value="20">20 ans — Bâtiments légers</option>
-              <option value="30">30 ans — Bâtiments industriels</option>
-              <option value="50">50 ans — Gros œuvre</option>
-            </select>
-          </div>
-          <div class="field">
-            <label>Valeur résiduelle (FCFA)</label>
-            <input type="number" id="immo-valeur-residuelle" placeholder="0" min="0" value="0" oninput="immoCalcPreview()">
-          </div>
-        </div>
-
-        <!-- Aperçu calcul -->
-        <div id="immoPreview" style="background:var(--surface3);border-radius:var(--r);padding:12px 14px;margin-bottom:14px;font-size:12px;display:none">
-          <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">Aperçu calcul</div>
-          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
-            <div><div style="color:var(--muted);font-size:10px">Taux</div><div id="prev-taux" style="font-family:var(--font-mono);font-weight:700;color:var(--warm)">—</div></div>
-            <div><div style="color:var(--muted);font-size:10px">Dotation/an</div><div id="prev-dot" style="font-family:var(--font-mono);font-weight:700;color:var(--blue)">—</div></div>
-            <div><div style="color:var(--muted);font-size:10px">Amort. cumulé</div><div id="prev-cum" style="font-family:var(--font-mono);font-weight:700;color:var(--rust)">—</div></div>
-            <div><div style="color:var(--muted);font-size:10px">VNC actuelle</div><div id="prev-vnc" style="font-family:var(--font-mono);font-weight:700;color:var(--teal)">—</div></div>
-          </div>
-        </div>
-
-        <div class="field full" style="margin-bottom:16px">
-          <label>Notes / Localisation</label>
-          <textarea id="immo-notes" rows="2" placeholder="Ex: Bureau direction, facture N°F-2024-001…"></textarea>
-        </div>
-
-        <div style="display:flex;gap:8px;justify-content:flex-end">
-          <button class="btn-modal-cancel" onclick="closeImmoModal()">Annuler</button>
-          <button class="btn-modal-ok" onclick="saveImmobilisation()">✓ Enregistrer</button>
-        </div>
+      </div>
+      <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+        <div class="kpi"><div class="kpi-label">Articles</div><div class="kpi-value" id="stock-kpi-articles" style="color:var(--warm)">0</div><div class="kpi-sub">références</div></div>
+        <div class="kpi"><div class="kpi-label">Valeur stock</div><div class="kpi-value" id="stock-kpi-valeur" style="color:var(--green)">0</div><div class="kpi-sub">FCFA CMUP</div></div>
+        <div class="kpi"><div class="kpi-label">Alertes stock bas</div><div class="kpi-value" id="stock-kpi-alertes" style="color:var(--rust)">0</div><div class="kpi-sub">sous seuil</div></div>
+        <div class="kpi"><div class="kpi-label">Mouvements (mois)</div><div class="kpi-value" id="stock-kpi-mvt" style="color:var(--blue)">0</div><div class="kpi-sub">entrées+sorties</div></div>
+      </div>
+      <div class="card" id="stockContent">
+        <div class="empty-state"><div class="icon">📦</div><p>Aucun article en stock. Ajoutez un mouvement pour commencer.</p></div>
       </div>
     </div>
 
-    <!-- MODAL DÉTAIL / TABLEAU ANNUEL -->
-    <div id="immoDetailModal" class="modal-overlay" style="display:none">
-      <div class="modal-box" style="width:780px;max-width:100%;max-height:92vh;overflow-y:auto">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-          <div class="modal-title" id="immoDetailTitle">Tableau d'amortissement</div>
-          <button class="btn-modal-cancel" onclick="closeImmoDetailModal()">✕</button>
+    <!-- ═══════════════════ RAPPROCHEMENT BANCAIRE ═══════════════════ -->
+    <div class="view" id="view-rapprochement">
+      <div class="ph">
+        <div><h1>Rapprochement bancaire</h1><p>Import relevé · Rapprochement auto avec journal BQ</p></div>
+        <div class="ph-actions">
+          <button class="btn btn-sm-wire" onclick="exportRapprochementPDF()">↓ État PDF</button>
+          <label class="btn btn-ink" style="cursor:pointer">📁 Importer relevé CSV <input type="file" id="releveBancaireInput" accept=".csv" style="display:none" onchange="importReleveBancaire(this)"></label>
         </div>
-        <div id="immoDetailContent"></div>
+      </div>
+      <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+        <div class="kpi"><div class="kpi-label">Solde banque</div><div class="kpi-value" id="rappr-kpi-banque" style="color:var(--warm)">0</div><div class="kpi-sub">relevé FCFA</div></div>
+        <div class="kpi"><div class="kpi-label">Solde compta</div><div class="kpi-value" id="rappr-kpi-compta" style="color:var(--green)">0</div><div class="kpi-sub">compte 521</div></div>
+        <div class="kpi"><div class="kpi-label">Écart</div><div class="kpi-value" id="rappr-kpi-ecart" style="color:var(--rust)">0</div><div class="kpi-sub">à justifier</div></div>
+        <div class="kpi"><div class="kpi-label">Non rapprochés</div><div class="kpi-value" id="rappr-kpi-non" style="color:var(--blue)">0</div><div class="kpi-sub">opérations</div></div>
+      </div>
+      <div class="card" id="rapprochementContent">
+        <div class="empty-state"><div class="icon">🏦</div><p>Importez un relevé bancaire CSV pour commencer le rapprochement.</p></div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════ BUDGETS ═══════════════════ -->
+    <div class="view" id="view-budgets">
+      <div class="ph">
+        <div><h1>Budgets & Prévisions</h1><p>Budget annuel par compte · Réalisé vs Prévu · Alertes dépassement</p></div>
+        <div class="ph-actions">
+          <button class="btn btn-sm-wire" onclick="exportBudgetPDF()">↓ Export PDF</button>
+          <button class="btn btn-ink" onclick="openBudgetModal()">+ Saisir budget</button>
+        </div>
+      </div>
+      <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+        <div class="kpi"><div class="kpi-label">Budget total</div><div class="kpi-value" id="budget-kpi-total" style="color:var(--warm)">0</div><div class="kpi-sub">FCFA prévu</div></div>
+        <div class="kpi"><div class="kpi-label">Réalisé</div><div class="kpi-value" id="budget-kpi-realise" style="color:var(--green)">0</div><div class="kpi-sub">FCFA</div></div>
+        <div class="kpi"><div class="kpi-label">Taux exécution</div><div class="kpi-value" id="budget-kpi-taux" style="color:var(--blue)">0%</div><div class="kpi-sub">global</div></div>
+        <div class="kpi"><div class="kpi-label">Dépassements</div><div class="kpi-value" id="budget-kpi-dep" style="color:var(--rust)">0</div><div class="kpi-sub">comptes</div></div>
+      </div>
+      <div class="card" id="budgetContent">
+        <div class="empty-state"><div class="icon">🎯</div><p>Aucun budget saisi pour cet exercice.</p></div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════ LETTRAGE ═══════════════════ -->
+    <div class="view" id="view-lettrage">
+      <div class="ph">
+        <div><h1>Lettrage & Échéances</h1><p>Comptes 401/411 · Balance âgée · Relances clients</p></div>
+        <div class="ph-actions">
+          <button class="btn btn-sm-wire" onclick="exportBalanceAgeePDF()">↓ Balance âgée PDF</button>
+          <button class="btn btn-ink" onclick="lancerLettrage()">⚡ Lettrage auto</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+        <button class="btn btn-sm-wire" onclick="afficherLettrage('411')" id="btn-lettrage-411" style="border-color:var(--warm);color:var(--warm)">Clients (411)</button>
+        <button class="btn btn-sm-wire" onclick="afficherLettrage('401')" id="btn-lettrage-401">Fournisseurs (401)</button>
+      </div>
+      <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+        <div class="kpi"><div class="kpi-label">Créances clients</div><div class="kpi-value" id="lettr-kpi-clients" style="color:var(--warm)">0</div><div class="kpi-sub">FCFA total</div></div>
+        <div class="kpi"><div class="kpi-label">Dettes fourn.</div><div class="kpi-value" id="lettr-kpi-fourn" style="color:var(--rust)">0</div><div class="kpi-sub">FCFA total</div></div>
+        <div class="kpi"><div class="kpi-label">En retard (+30j)</div><div class="kpi-value" id="lettr-kpi-retard" style="color:var(--red)">0</div><div class="kpi-sub">FCFA</div></div>
+        <div class="kpi"><div class="kpi-label">Lettré</div><div class="kpi-value" id="lettr-kpi-lettre" style="color:var(--green)">0%</div><div class="kpi-sub">taux</div></div>
+      </div>
+      <div class="card" id="lettrageContent">
+        <div class="empty-state"><div class="icon">🔗</div><p>Sélectionnez Clients (411) ou Fournisseurs (401) pour voir les soldes.</p></div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════ DÉCLARATIONS FISCALES ═══════════════════ -->
+    <div class="view" id="view-declarations">
+      <div class="ph">
+        <div><h1>Déclarations fiscales</h1><p>DGI TVA · DISA · IMF · IS · Formulaires UEMOA</p></div>
+        <div class="ph-actions">
+          <button class="btn btn-sm-wire" onclick="exportDeclarationPDF()">↓ Formulaire PDF</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap">
+        <button class="btn btn-sm-wire" onclick="afficherDeclaration('tva')" id="decl-btn-tva" style="border-color:var(--warm);color:var(--warm)">TVA mensuelle</button>
+        <button class="btn btn-sm-wire" onclick="afficherDeclaration('disa')" id="decl-btn-disa">DISA (salaires)</button>
+        <button class="btn btn-sm-wire" onclick="afficherDeclaration('imf')" id="decl-btn-imf">IMF</button>
+        <button class="btn btn-sm-wire" onclick="afficherDeclaration('is')" id="decl-btn-is">IS (25%)</button>
+      </div>
+      <div class="card" id="declarationContent">
+        <div class="empty-state"><div class="icon">📑</div><p>Sélectionnez une déclaration à générer.</p></div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════ CLÔTURE D'EXERCICE ═══════════════════ -->
+    <div class="view" id="view-exercices">
+      <div class="ph">
+        <div><h1>Exercices comptables</h1><p>Clôture annuelle · Report à nouveau · Ouverture nouvel exercice</p></div>
+      </div>
+      <div class="card" style="padding:28px">
+        <h3 style="font-family:var(--font-display);font-size:18px;margin-bottom:20px;color:var(--ink)">Procédure de clôture</h3>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;margin-bottom:24px">
+          <div class="exercice-step" id="cloture-step-1">
+            <div class="exercice-step-num">1</div>
+            <div><strong>Vérification</strong><br><span style="font-size:12px;color:var(--muted)">Balance équilibrée, aucun écart</span></div>
+            <button class="btn btn-sm-wire" onclick="verifierCloture()">Vérifier</button>
+          </div>
+          <div class="exercice-step" id="cloture-step-2">
+            <div class="exercice-step-num">2</div>
+            <div><strong>Inventaire</strong><br><span style="font-size:12px;color:var(--muted)">Amortissements, stocks, provisions</span></div>
+            <button class="btn btn-sm-wire" onclick="navigate('immobilisations')">→ Immob.</button>
+          </div>
+          <div class="exercice-step" id="cloture-step-3">
+            <div class="exercice-step-num">3</div>
+            <div><strong>Clôture comptes</strong><br><span style="font-size:12px;color:var(--muted)">Virement résultat vers 13x</span></div>
+            <button class="btn btn-sm-wire" onclick="genererEcrituresCloture()">Générer écritures</button>
+          </div>
+          <div class="exercice-step" id="cloture-step-4">
+            <div class="exercice-step-num">4</div>
+            <div><strong>Ouverture N+1</strong><br><span style="font-size:12px;color:var(--muted)">Report à nouveau automatique</span></div>
+            <button class="btn btn-gold" onclick="ouvrirNouvelExercice()">Ouvrir N+1</button>
+          </div>
+        </div>
+        <div id="clotureStatus" class="card" style="background:var(--surface2);padding:16px">
+          <div class="empty-state" style="padding:10px"><div class="icon" style="font-size:24px">🔄</div><p style="font-size:13px">Cliquez sur "Vérifier" pour commencer la procédure de clôture.</p></div>
+        </div>
       </div>
     </div>
 
@@ -1001,6 +1004,111 @@
       <div class="pc3d-grid" id="pcBody"></div>
     </div>
 
+  </div>
+</div>
+
+<!-- ═══ MODAL PAIE ═══ -->
+<div id="paieModal" class="modal-overlay" style="display:none">
+  <div class="modal-box" style="width:600px;max-height:90vh;overflow-y:auto">
+    <div class="modal-title">👤 Salarié — Fiche de paie</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px">
+      <div><label class="af-label" style="color:var(--muted)">Nom complet</label><input class="af-input" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" id="paie-nom" placeholder="ex: KOUAME Jean"></div>
+      <div><label class="af-label" style="color:var(--muted)">Poste</label><input class="af-input" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" id="paie-poste" placeholder="ex: Comptable"></div>
+      <div><label class="af-label" style="color:var(--muted)">Salaire brut (FCFA)</label><input type="number" class="af-input" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" id="paie-brut" placeholder="300000" oninput="calcPaie()"></div>
+      <div><label class="af-label" style="color:var(--muted)">Mois de paie</label><input type="month" class="af-input" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" id="paie-mois"></div>
+    </div>
+    <div id="paie-calcul-result" style="margin-top:16px;background:var(--surface2);border:1px solid var(--line);border-radius:var(--r);padding:16px;font-size:13px;display:none">
+      <strong style="font-family:var(--font-display)">Détail du bulletin</strong>
+      <div style="margin-top:10px;display:grid;gap:6px" id="paie-detail-grid"></div>
+    </div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn-modal-cancel" onclick="document.getElementById('paieModal').style.display='none'">Annuler</button>
+      <button class="btn-modal-ok" onclick="savePaie()">✓ Enregistrer & Générer écriture</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL IMMOBILISATION ═══ -->
+<div id="immobModal" class="modal-overlay" style="display:none">
+  <div class="modal-box" style="width:580px">
+    <div class="modal-title">🏗️ Nouvelle immobilisation</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px">
+      <div><label class="af-label" style="color:var(--muted)">Désignation</label><input class="af-input" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" id="immob-nom" placeholder="ex: Ordinateur HP"></div>
+      <div><label class="af-label" style="color:var(--muted)">Catégorie</label>
+        <select id="immob-categorie" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" onchange="updateImmobCompte()">
+          <option value="2442">Informatique (2442) — 33%/an</option>
+          <option value="2451">Véhicule (2451) — 25%/an</option>
+          <option value="2444">Mobilier (2444) — 20%/an</option>
+          <option value="2441">Matériel industriel (2441) — 10%/an</option>
+          <option value="231">Bâtiment (231) — 5%/an</option>
+          <option value="211">Immob. incorporelle (211) — 20%/an</option>
+        </select>
+      </div>
+      <div><label class="af-label" style="color:var(--muted)">Valeur d'achat HT (FCFA)</label><input type="number" id="immob-valeur" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" placeholder="500000" oninput="calcAmortissement()"></div>
+      <div><label class="af-label" style="color:var(--muted)">Date d'acquisition</label><input type="date" id="immob-date" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%"></div>
+      <div><label class="af-label" style="color:var(--muted)">Méthode d'amortissement</label>
+        <select id="immob-methode" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" onchange="calcAmortissement()">
+          <option value="lineaire">Linéaire</option>
+          <option value="degressif">Dégressif (coeff. 1,5)</option>
+        </select>
+      </div>
+      <div><label class="af-label" style="color:var(--muted)">Numéro de série / Référence</label><input id="immob-ref" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" placeholder="optionnel"></div>
+    </div>
+    <div id="immob-amort-preview" style="margin-top:14px;background:var(--surface2);border:1px solid var(--line);border-radius:var(--r);padding:12px;font-size:12px;display:none"></div>
+    <div class="modal-actions" style="margin-top:14px">
+      <button class="btn-modal-cancel" onclick="document.getElementById('immobModal').style.display='none'">Annuler</button>
+      <button class="btn-modal-ok" onclick="saveImmob()">✓ Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL STOCK ═══ -->
+<div id="stockModal" class="modal-overlay" style="display:none">
+  <div class="modal-box" style="width:500px">
+    <div class="modal-title">📦 Mouvement de stock</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px">
+      <div style="grid-column:1/-1"><label class="af-label" style="color:var(--muted)">Article</label><input id="stock-article" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" placeholder="Désignation de l'article"></div>
+      <div><label class="af-label" style="color:var(--muted)">Type mouvement</label>
+        <select id="stock-type" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%">
+          <option value="entree">Entrée (achat/réception)</option>
+          <option value="sortie">Sortie (vente/consommation)</option>
+          <option value="inventaire">Inventaire (ajustement)</option>
+        </select>
+      </div>
+      <div><label class="af-label" style="color:var(--muted)">Quantité</label><input type="number" id="stock-qte" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" placeholder="0" min="0"></div>
+      <div><label class="af-label" style="color:var(--muted)">Prix unitaire HT (FCFA)</label><input type="number" id="stock-pu" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" placeholder="0"></div>
+      <div><label class="af-label" style="color:var(--muted)">Date</label><input type="date" id="stock-date" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%"></div>
+      <div><label class="af-label" style="color:var(--muted)">Seuil alerte (qté min)</label><input type="number" id="stock-seuil" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" placeholder="5"></div>
+    </div>
+    <div class="modal-actions" style="margin-top:14px">
+      <button class="btn-modal-cancel" onclick="document.getElementById('stockModal').style.display='none'">Annuler</button>
+      <button class="btn-modal-ok" onclick="saveStock()">✓ Enregistrer mouvement</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL BUDGET ═══ -->
+<div id="budgetModal" class="modal-overlay" style="display:none">
+  <div class="modal-box" style="width:520px">
+    <div class="modal-title">🎯 Saisir un budget</div>
+    <div style="display:grid;gap:12px;margin-top:14px">
+      <div><label class="af-label" style="color:var(--muted)">Compte SYSCOHADA</label><input id="budget-compte" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" placeholder="ex: 601 — Achats marchandises" oninput="updateBudgetAccountSuggest(this)"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div><label class="af-label" style="color:var(--muted)">Montant prévu (FCFA)</label><input type="number" id="budget-montant" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" placeholder="1000000"></div>
+        <div><label class="af-label" style="color:var(--muted)">Période</label>
+          <select id="budget-periode" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%">
+            <option value="annuel">Annuel</option>
+            <option value="T1">T1</option><option value="T2">T2</option>
+            <option value="T3">T3</option><option value="T4">T4</option>
+          </select>
+        </div>
+      </div>
+      <div><label class="af-label" style="color:var(--muted)">Alerte dépassement à (%)</label><input type="number" id="budget-alerte" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" placeholder="90" min="0" max="200" value="90"></div>
+    </div>
+    <div class="modal-actions" style="margin-top:14px">
+      <button class="btn-modal-cancel" onclick="document.getElementById('budgetModal').style.display='none'">Annuler</button>
+      <button class="btn-modal-ok" onclick="saveBudget()">✓ Enregistrer budget</button>
+    </div>
   </div>
 </div>
 
