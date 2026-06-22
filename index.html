@@ -225,6 +225,10 @@
   <div class="nav-item" onclick="navigate('tresorerie');closeMobileSidebar()"><span class="nav-icon">◎</span> Trésorerie</div>
 </div>
 <div class="sb-section">
+  <div class="sb-title">Actifs</div>
+  <div class="nav-item" onclick="navigate('immobilisations');closeMobileSidebar()"><span class="nav-icon">🏗</span> Immobilisations</div>
+</div>
+<div class="sb-section">
   <div class="sb-title">Référentiel</div>
   <div class="nav-item" onclick="navigate('plancomptable');closeMobileSidebar()"><span class="nav-icon">⊙</span> Plan SYSCOHADA</div>
 </div>
@@ -789,6 +793,196 @@
         <div class="ph-actions"><button class="btn btn-sm-wire" onclick="openExportModal()">⎙ Exporter</button></div>
       </div>
       <div class="card" id="tresorerieContent"><div class="empty-state"><div class="icon">◎</div><p>Comptes de trésorerie (5xxx)</p></div></div>
+    </div>
+
+    <!-- ═══════════════════ IMMOBILISATIONS ═══════════════════ -->
+    <div class="view" id="view-immobilisations">
+      <div class="ph">
+        <div><h1>Immobilisations</h1><p>Tableau des amortissements SYSCOHADA — UEMOA</p></div>
+        <div class="ph-actions">
+          <button class="btn btn-sm-wire" onclick="genererDotationsAnnuelles()">⚡ Générer dotations exercice</button>
+          <button class="btn btn-sm-wire" onclick="exportImmoPDF()">⎙ Exporter PDF</button>
+          <button class="btn btn-ink" onclick="openImmoModal()">+ Nouvelle immobilisation</button>
+        </div>
+      </div>
+
+      <!-- KPIs -->
+      <div class="immo-kpi-grid">
+        <div class="kpi"><div class="kpi-label">Valeur brute totale</div><div class="kpi-value" id="immo-kpi-brut" style="color:var(--warm)">0</div><div class="kpi-sub">FCFA</div></div>
+        <div class="kpi"><div class="kpi-label">Amort. cumulés</div><div class="kpi-value" id="immo-kpi-amort" style="color:var(--rust)">0</div><div class="kpi-sub">FCFA</div></div>
+        <div class="kpi"><div class="kpi-label">Valeur nette (VNC)</div><div class="kpi-value" id="immo-kpi-vnc" style="color:var(--teal)">0</div><div class="kpi-sub">FCFA</div></div>
+        <div class="kpi"><div class="kpi-label">Dotation exercice</div><div class="kpi-value" id="immo-kpi-dotation" style="color:var(--blue)">0</div><div class="kpi-sub">FCFA / an</div></div>
+        <div class="kpi"><div class="kpi-label">Nb immobilisations</div><div class="kpi-value" id="immo-kpi-nb">0</div><div class="kpi-sub">actifs</div></div>
+      </div>
+
+      <!-- Filtres -->
+      <div class="filtre-periode-bar">
+        <label>Catégorie</label>
+        <select id="immo-filter-cat" onchange="renderImmobilisations()">
+          <option value="">Toutes</option>
+          <option value="incorporelle">Incorporelles</option>
+          <option value="batiment">Bâtiments</option>
+          <option value="materiel">Matériel &amp; outillage</option>
+          <option value="mobilier">Mobilier de bureau</option>
+          <option value="transport">Matériel de transport</option>
+          <option value="informatique">Matériel informatique</option>
+          <option value="autre">Autres</option>
+        </select>
+        <label>Méthode</label>
+        <select id="immo-filter-methode" onchange="renderImmobilisations()">
+          <option value="">Toutes</option>
+          <option value="lineaire">Linéaire</option>
+          <option value="degressif">Dégressif</option>
+        </select>
+        <input type="text" class="search-input" id="immo-search" placeholder="Désignation, compte…" oninput="renderImmobilisations()" style="flex:1;min-width:160px">
+        <button class="btn-filtre-reset" onclick="resetImmoFiltre()">✕</button>
+      </div>
+
+      <!-- Tableau -->
+      <div class="card" style="padding:0">
+        <div class="immo-table-wrap">
+          <table class="immo-table">
+            <thead><tr>
+              <th>Désignation</th>
+              <th>Catégorie</th>
+              <th>Compte</th>
+              <th class="r">Date acquisition</th>
+              <th class="r">Valeur brute</th>
+              <th class="r">Durée</th>
+              <th class="r">Méthode</th>
+              <th class="r">Amort. cumulé</th>
+              <th class="r">VNC</th>
+              <th class="r">Taux</th>
+              <th class="r">Dotation/an</th>
+              <th>Actions</th>
+            </tr></thead>
+            <tbody id="immoBody">
+              <tr><td colspan="12"><div class="empty-state"><div class="icon">🏗</div><p>Aucune immobilisation enregistrée</p></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL NOUVELLE IMMOBILISATION -->
+    <div id="immoModal" class="modal-overlay" style="display:none">
+      <div class="modal-box">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <div class="modal-title" id="immoModalTitle">Nouvelle immobilisation</div>
+          <button class="btn-modal-cancel" onclick="closeImmoModal()">✕</button>
+        </div>
+
+        <div class="fg c3" style="margin-bottom:12px">
+          <div class="field">
+            <label>Catégorie *</label>
+            <select id="immo-cat" onchange="immoAutoCompte()">
+              <option value="incorporelle">Incorporelle (21x)</option>
+              <option value="batiment">Bâtiment (23x)</option>
+              <option value="materiel">Matériel &amp; outillage (241x)</option>
+              <option value="informatique">Matériel informatique (2442)</option>
+              <option value="mobilier">Mobilier de bureau (2444)</option>
+              <option value="transport">Matériel de transport (245x)</option>
+              <option value="autre">Autre (24x)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Compte d'immobilisation *</label>
+            <input type="text" id="immo-compte" placeholder="ex: 2444" maxlength="6">
+          </div>
+          <div class="field">
+            <label>Compte amortissement *</label>
+            <input type="text" id="immo-compte-amort" placeholder="ex: 2844" maxlength="6">
+          </div>
+        </div>
+
+        <div class="fg" style="margin-bottom:12px">
+          <div class="field" style="flex:2">
+            <label>Désignation *</label>
+            <input type="text" id="immo-designation" placeholder="ex: Ordinateur portable Dell XPS">
+          </div>
+          <div class="field">
+            <label>N° inventaire</label>
+            <input type="text" id="immo-num-inv" placeholder="IMM-001">
+          </div>
+        </div>
+
+        <div class="fg c3" style="margin-bottom:12px">
+          <div class="field">
+            <label>Date acquisition *</label>
+            <input type="date" id="immo-date-acq">
+          </div>
+          <div class="field">
+            <label>Valeur brute HT (FCFA) *</label>
+            <input type="number" id="immo-valeur-brute" placeholder="0" min="0" oninput="immoCalcPreview()">
+          </div>
+          <div class="field">
+            <label>Fournisseur</label>
+            <input type="text" id="immo-fournisseur" placeholder="Nom du fournisseur">
+          </div>
+        </div>
+
+        <div class="fg c3" style="margin-bottom:12px">
+          <div class="field">
+            <label>Méthode amortissement</label>
+            <select id="immo-methode" onchange="immoCalcPreview()">
+              <option value="lineaire">Linéaire (recommandé SYSCOHADA)</option>
+              <option value="degressif">Dégressif</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Durée (années) *</label>
+            <select id="immo-duree" onchange="immoCalcPreview()">
+              <option value="2">2 ans — Informatique rapide</option>
+              <option value="3">3 ans — Informatique standard</option>
+              <option value="4">4 ans</option>
+              <option value="5" selected>5 ans — Matériel &amp; outillage</option>
+              <option value="7">7 ans</option>
+              <option value="8">8 ans</option>
+              <option value="10">10 ans — Mobilier, véhicules</option>
+              <option value="15">15 ans</option>
+              <option value="20">20 ans — Bâtiments légers</option>
+              <option value="30">30 ans — Bâtiments industriels</option>
+              <option value="50">50 ans — Gros œuvre</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Valeur résiduelle (FCFA)</label>
+            <input type="number" id="immo-valeur-residuelle" placeholder="0" min="0" value="0" oninput="immoCalcPreview()">
+          </div>
+        </div>
+
+        <!-- Aperçu calcul -->
+        <div id="immoPreview" style="background:var(--surface3);border-radius:var(--r);padding:12px 14px;margin-bottom:14px;font-size:12px;display:none">
+          <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px">Aperçu calcul</div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+            <div><div style="color:var(--muted);font-size:10px">Taux</div><div id="prev-taux" style="font-family:var(--font-mono);font-weight:700;color:var(--warm)">—</div></div>
+            <div><div style="color:var(--muted);font-size:10px">Dotation/an</div><div id="prev-dot" style="font-family:var(--font-mono);font-weight:700;color:var(--blue)">—</div></div>
+            <div><div style="color:var(--muted);font-size:10px">Amort. cumulé</div><div id="prev-cum" style="font-family:var(--font-mono);font-weight:700;color:var(--rust)">—</div></div>
+            <div><div style="color:var(--muted);font-size:10px">VNC actuelle</div><div id="prev-vnc" style="font-family:var(--font-mono);font-weight:700;color:var(--teal)">—</div></div>
+          </div>
+        </div>
+
+        <div class="field full" style="margin-bottom:16px">
+          <label>Notes / Localisation</label>
+          <textarea id="immo-notes" rows="2" placeholder="Ex: Bureau direction, facture N°F-2024-001…"></textarea>
+        </div>
+
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn-modal-cancel" onclick="closeImmoModal()">Annuler</button>
+          <button class="btn-modal-ok" onclick="saveImmobilisation()">✓ Enregistrer</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL DÉTAIL / TABLEAU ANNUEL -->
+    <div id="immoDetailModal" class="modal-overlay" style="display:none">
+      <div class="modal-box" style="width:780px;max-width:100%;max-height:92vh;overflow-y:auto">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <div class="modal-title" id="immoDetailTitle">Tableau d'amortissement</div>
+          <button class="btn-modal-cancel" onclick="closeImmoDetailModal()">✕</button>
+        </div>
+        <div id="immoDetailContent"></div>
+      </div>
     </div>
 
     <!-- PLAN COMPTABLE -->
