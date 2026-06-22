@@ -18,8 +18,13 @@ import {
   arrayRemove,
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
+// ═══════════════════════════════════════════════════════════
+// COMEO AI v4 — MODULE COLLABORATION
+// Fix critique : patch navigate() IMMÉDIAT (sans await)
+// ═══════════════════════════════════════════════════════════
+
 // ─────────────────────────────────────────────────────────
-// 0. ATTENDRE FIREBASE (as.js dispatch "firebase-ready")
+// 0. ATTENDRE FIREBASE (as.js dispatche "firebase-ready")
 // ─────────────────────────────────────────────────────────
 function waitFB() {
   return new Promise((r) => {
@@ -34,39 +39,41 @@ function waitFB() {
 let _rtdb = null;
 
 const C = {
-  sessionId: null,
-  sessionCode: null,
-  role: null,         // 'host' | 'guest'
-  members: [],
-  unsubJournal: null,
-  unsubChat: null,
-  myPresRef: null,
+  sessionId:       null,
+  sessionCode:     null,
+  role:            null,   // 'host' | 'guest'
+  members:         [],
+  unsubJournal:    null,
+  unsubChat:       null,
+  myPresRef:       null,
   peerConnections: {},
-  localStream: null,
-  isVideoOpen: false,
-  MAX_MEMBERS: 5,
+  localStream:     null,
+  isVideoOpen:     false,
+  MAX_MEMBERS:     5,
 };
 
-// helpers Firestore (réutilisent ce qu'as.js expose)
-function col(...args)   { return window._fbCollection(window._db, ...args); }
-function docRef(...args){ return window._fbDoc(window._db, ...args); }
-function addD(colRef, data) { return window._fbAddDoc(colRef, data); }
-function getD(docR)     { return window._fbGetDoc(docR); }
-function getDs(colR)    { return window._fbGetDocs(colR); }
-function setD(docR, data, opts) { return window._fbSetDoc(docR, data, opts); }
-function delD(docR)     { return window._fbDeleteDoc(docR); }
-function q(colR, ...constraints){ return window._fbQuery(colR, ...constraints); }
-function orderBy(f, d)  { return window._fbOrderBy(f, d); }
+// ─────────────────────────────────────────────────────────
+// 2. HELPERS FIRESTORE (réutilisent les refs exposées par as.js)
+// ─────────────────────────────────────────────────────────
+function col(...args)            { return window._fbCollection(window._db, ...args); }
+function docRef(...args)         { return window._fbDoc(window._db, ...args); }
+function addD(colRef, data)      { return window._fbAddDoc(colRef, data); }
+function getD(docR)              { return window._fbGetDoc(docR); }
+function getDs(colR)             { return window._fbGetDocs(colR); }
+function setD(docR, data, opts)  { return window._fbSetDoc(docR, data, opts); }
+function delD(docR)              { return window._fbDeleteDoc(docR); }
+function q(colR, ...c)           { return window._fbQuery(colR, ...c); }
+function orderBy(f, d)           { return window._fbOrderBy(f, d); }
 
 function fn(n) {
   return Number(n || 0).toLocaleString('fr-FR', { maximumFractionDigits: 0 });
 }
 function esc(s) {
-  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 function fmtTime(iso) {
-  try { return new Date(iso).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}); }
-  catch(e){ return ''; }
+  try { return new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }); }
+  catch (e) { return ''; }
 }
 function toast(msg, type) {
   if (typeof window.toast === 'function') window.toast(msg, type);
@@ -74,41 +81,69 @@ function toast(msg, type) {
 }
 
 // ─────────────────────────────────────────────────────────
-// 2. INIT REALTIME DB
+// 3. INIT REALTIME DATABASE
 // ─────────────────────────────────────────────────────────
 async function initRTDB() {
-  await waitFB();
   try {
     const app = getApp();
     _rtdb = getDatabase(app);
-  } catch(e) {
+  } catch (e) {
     console.error('[COLLAB] RTDB init error:', e);
   }
 }
 
 // ─────────────────────────────────────────────────────────
-// 3. GÉNÉRER CODE & CRÉER SESSION
+// 4. PATCH navigate() — IMMÉDIAT, avant tout await
+// C'est le fix principal de l'écran blanc.
+// On patche tout de suite sans attendre Firebase.
+// ─────────────────────────────────────────────────────────
+(function patchNavigate() {
+  // Sécurité : si as.js n'est pas encore chargé, on réessaie
+  if (typeof window.navigate !== 'function') {
+    document.addEventListener('DOMContentLoaded', patchNavigate, { once: true });
+    return;
+  }
+  const _origNav = window.navigate;
+  window.navigate = function (view) {
+    if (view === 'collaboration') {
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+      const vEl = document.getElementById('view-collaboration');
+      if (vEl) vEl.classList.add('active');
+      document.querySelectorAll('.nav-item').forEach(n => {
+        if (n.textContent.toLowerCase().includes('collab')) n.classList.add('active');
+      });
+      renderCollabView();
+    } else {
+      _origNav(view);
+    }
+  };
+  console.log('[COLLAB] navigate() patché ✓');
+})();
+
+// ─────────────────────────────────────────────────────────
+// 5. GÉNÉRER CODE & CRÉER SESSION
 // ─────────────────────────────────────────────────────────
 function genCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  return Array.from({length:6}, () => chars[Math.floor(Math.random()*chars.length)]).join('');
+  return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
 }
 
 async function creerSession() {
-  if (!window.currentProfile?.id) { toast('Connectez-vous d\'abord','error'); return; }
-  if (C.sessionId) { toast('Déjà dans une session','info'); return; }
+  if (!window.currentProfile?.id) { toast('Connectez-vous d\'abord', 'error'); return; }
+  if (C.sessionId) { toast('Déjà dans une session', 'info'); return; }
 
   const code = genCode();
-  const sid  = 'sess_' + Date.now() + '_' + window.currentProfile.id.slice(0,8);
+  const sid  = 'sess_' + Date.now() + '_' + window.currentProfile.id.slice(0, 8);
 
   await setD(docRef('collab_sessions', sid), {
     code,
-    hostId:   window.currentProfile.id,
-    hostName: window.currentProfile.company || 'Hôte',
-    members:  [window.currentProfile.id],
+    hostId:      window.currentProfile.id,
+    hostName:    window.currentProfile.company || 'Hôte',
+    members:     [window.currentProfile.id],
     memberNames: { [window.currentProfile.id]: window.currentProfile.company || 'Hôte' },
-    createdAt: new Date().toISOString(),
-    active: true,
+    createdAt:   new Date().toISOString(),
+    active:      true,
   });
 
   C.sessionId   = sid;
@@ -124,19 +159,21 @@ async function creerSession() {
 }
 
 // ─────────────────────────────────────────────────────────
-// 4. REJOINDRE SESSION
+// 6. REJOINDRE SESSION
 // ─────────────────────────────────────────────────────────
 async function rejoindreSession(code) {
-  if (!code) code = (document.getElementById('collab-join-code')?.value||'').trim().toUpperCase();
-  if (!code || code.length !== 6) { toast('Code invalide (6 caractères)','error'); return; }
-  if (!window.currentProfile?.id) { toast('Connectez-vous d\'abord','error'); return; }
+  if (!code) code = (document.getElementById('collab-join-code')?.value || '').trim().toUpperCase();
+  if (!code || code.length !== 6) { toast('Code invalide (6 caractères)', 'error'); return; }
+  if (!window.currentProfile?.id) { toast('Connectez-vous d\'abord', 'error'); return; }
 
   const snap = await getDs(col('collab_sessions'));
   let found = null;
-  snap.forEach(d => { if (d.data().code===code && d.data().active) found={id:d.id,...d.data()}; });
+  snap.forEach(d => {
+    if (d.data().code === code && d.data().active) found = { id: d.id, ...d.data() };
+  });
 
-  if (!found) { toast('Session introuvable ou expirée','error'); return; }
-  if (found.members.length > C.MAX_MEMBERS) { toast('Session complète (5 max)','error'); return; }
+  if (!found) { toast('Session introuvable ou expirée', 'error'); return; }
+  if (found.members.length >= C.MAX_MEMBERS) { toast('Session complète (' + C.MAX_MEMBERS + ' max)', 'error'); return; }
 
   if (!found.members.includes(window.currentProfile.id)) {
     await updateDoc(docRef('collab_sessions', found.id), {
@@ -155,28 +192,29 @@ async function rejoindreSession(code) {
 
   renderCollabView();
   window.navigate('collaboration');
-  await envoyerMsgChat(`👋 ${window.currentProfile.company||'Un membre'} a rejoint la session.`, true);
+  await envoyerMsgChat(`👋 ${window.currentProfile.company || 'Un membre'} a rejoint la session.`, true);
   toast('✓ Connecté à la session de ' + found.hostName, 'success');
 }
 
 // ─────────────────────────────────────────────────────────
-// 5. PRESENCE (Realtime DB)
+// 7. PRÉSENCE (Realtime DB)
 // ─────────────────────────────────────────────────────────
 async function setupPresence(sid) {
   if (!_rtdb || !window.currentProfile?.id) return;
-  const uid = window.currentProfile.id;
+  const uid     = window.currentProfile.id;
   const presRef = ref(_rtdb, `collab_presence/${sid}/${uid}`);
-  C.myPresRef = presRef;
+  C.myPresRef   = presRef;
+
   await set(presRef, {
     uid,
-    name:  window.currentProfile.company || 'Utilisateur',
-    email: window.currentProfile.email || '',
-    online: true,
+    name:     window.currentProfile.company || 'Utilisateur',
+    email:    window.currentProfile.email || '',
+    online:   true,
     joinedAt: new Date().toISOString(),
   });
   onDisconnect(presRef).remove();
 
-  // Écouter tous les membres
+  // Écouter tous les membres en ligne
   const allRef = ref(_rtdb, `collab_presence/${sid}`);
   onValue(allRef, snap => {
     C.members = [];
@@ -189,10 +227,10 @@ function renderPresenceBar() {
   const bar = document.getElementById('collab-presence-bar');
   if (!bar) return;
   bar.innerHTML = C.members.map(m => `
-    <div class="collab-member-pill" title="${esc(m.email||m.name)}">
+    <div class="collab-member-pill" title="${esc(m.email || m.name)}">
       <span class="collab-dot"></span>
-      <span>${esc((m.name||'Invité').substring(0,14))}</span>
-      ${m.uid===window.currentProfile?.id ? '<span class="collab-you">(vous)</span>' : ''}
+      <span>${esc((m.name || 'Invité').substring(0, 14))}</span>
+      ${m.uid === window.currentProfile?.id ? '<span class="collab-you">(vous)</span>' : ''}
     </div>
   `).join('');
   const cnt = document.getElementById('collab-member-count');
@@ -200,14 +238,14 @@ function renderPresenceBar() {
 }
 
 // ─────────────────────────────────────────────────────────
-// 6. JOURNAL PARTAGÉ (Firestore onSnapshot)
+// 8. JOURNAL PARTAGÉ (Firestore onSnapshot)
 // ─────────────────────────────────────────────────────────
 function subscribeJournal(sid) {
   if (C.unsubJournal) C.unsubJournal();
-  const cRef = q(col('collab_sessions', sid, 'journal_partage'), orderBy('savedAt','asc'));
+  const cRef = q(col('collab_sessions', sid, 'journal_partage'), orderBy('savedAt', 'asc'));
   C.unsubJournal = onSnapshot(cRef, snap => {
     const ecrs = [];
-    snap.forEach(d => ecrs.push({...d.data(), _docId: d.id}));
+    snap.forEach(d => ecrs.push({ ...d.data(), _docId: d.id }));
     renderJournalPartage(ecrs);
   });
 }
@@ -223,23 +261,25 @@ function renderJournalPartage(ecritures) {
   }
   tbody.innerHTML = ecritures.map(e => {
     const isMe = e.auteurId === window.currentProfile?.id;
-    const lignesHTML = (e.lignes||[]).map(l => `
+    const lignesHTML = (e.lignes || []).map(l => `
       <div class="collab-ligne">
         <span class="compte">${esc(l.compte)}</span>
-        <span class="lib">${esc((l.libelle||'').substring(0,20))}</span>
-        <span class="deb">${l.debit ? fn(l.debit) : ''}</span>
+        <span class="lib">${esc((l.libelle || '').substring(0, 20))}</span>
+        <span class="deb">${l.debit  ? fn(l.debit)  : ''}</span>
         <span class="cre">${l.credit ? fn(l.credit) : ''}</span>
       </div>`).join('');
-    return `<tr class="${isMe?'collab-mine':''}">
-      <td>${esc(e.date||'')}</td>
-      <td><span class="jnl-badge">${esc(e.journal||'')}</span></td>
-      <td>${esc(e.piece||'')}</td>
-      <td>${esc(e.libelle||'')}</td>
+    return `<tr class="${isMe ? 'collab-mine' : ''}">
+      <td>${esc(e.date || '')}</td>
+      <td><span class="jnl-badge">${esc(e.journal || '')}</span></td>
+      <td>${esc(e.piece || '')}</td>
+      <td>${esc(e.libelle || '')}</td>
       <td><div class="collab-lignes-mini">${lignesHTML}</div></td>
-      <td><span class="collab-author-tag ${isMe?'me':''}">${esc(e.auteurNom||'?')}</span></td>
+      <td><span class="collab-author-tag ${isMe ? 'me' : ''}">${esc(e.auteurNom || '?')}</span></td>
       <td>
         <div style="display:flex;gap:4px;flex-wrap:wrap">
-          ${C.role==='host'||isMe ? `<button class="btn-collab-action" onclick="window._collabSupprimerEcr('${e._docId}')">🗑</button>` : ''}
+          ${C.role === 'host' || isMe
+            ? `<button class="btn-collab-action" onclick="window._collabSupprimerEcr('${e._docId}')">🗑</button>`
+            : ''}
           <button class="btn-collab-action" onclick="window._collabImporterEcr('${e._docId}')">⬇ Importer</button>
         </div>
       </td>
@@ -248,45 +288,48 @@ function renderJournalPartage(ecritures) {
 }
 
 async function envoyerEcritureVersSession(ecriture) {
-  if (!C.sessionId) { toast('Rejoignez une session d\'abord','info'); return; }
+  if (!C.sessionId) { toast('Rejoignez une session d\'abord', 'info'); return; }
   await addD(col('collab_sessions', C.sessionId, 'journal_partage'), {
     ...ecriture,
     auteurId:  window.currentProfile.id,
     auteurNom: window.currentProfile.company || 'Moi',
     savedAt:   new Date().toISOString(),
   });
-  await envoyerMsgChat(`📝 ${window.currentProfile.company} a partagé [${ecriture.journal}] — ${ecriture.libelle}`, true);
-  toast('✓ Écriture envoyée à la session','success');
+  await envoyerMsgChat(
+    `📝 ${window.currentProfile.company} a partagé [${ecriture.journal}] — ${ecriture.libelle}`,
+    true
+  );
+  toast('✓ Écriture envoyée à la session', 'success');
 }
 
-window._collabSupprimerEcr = async function(docId) {
+window._collabSupprimerEcr = async function (docId) {
   if (!C.sessionId) return;
   if (!confirm('Supprimer cette écriture du journal partagé ?')) return;
   await delD(docRef('collab_sessions', C.sessionId, 'journal_partage', docId));
-  toast('Écriture supprimée','info');
+  toast('Écriture supprimée', 'info');
 };
 
-window._collabImporterEcr = async function(docId) {
+window._collabImporterEcr = async function (docId) {
   if (!C.sessionId) return;
   const snap = await getD(docRef('collab_sessions', C.sessionId, 'journal_partage', docId));
   if (!snap.exists()) return;
-  const ecr = snap.data();
+  const ecr  = snap.data();
   const cRef = col('profiles', window.currentProfile.id, 'ecritures');
-  await addD(cRef, {...ecr, importedFromCollab:true, importedAt: new Date().toISOString()});
-  toast('✓ Écriture importée dans votre journal','success');
-  if (typeof window.loadEcrituresFromFirestore==='function') await window.loadEcrituresFromFirestore();
-  if (typeof window.updateStats==='function') window.updateStats();
+  await addD(cRef, { ...ecr, importedFromCollab: true, importedAt: new Date().toISOString() });
+  toast('✓ Écriture importée dans votre journal', 'success');
+  if (typeof window.loadEcrituresFromFirestore === 'function') await window.loadEcrituresFromFirestore();
+  if (typeof window.updateStats === 'function') window.updateStats();
 };
 
 // ─────────────────────────────────────────────────────────
-// 7. CHAT TEMPS-RÉEL (Firestore onSnapshot)
+// 9. CHAT TEMPS-RÉEL (Firestore onSnapshot)
 // ─────────────────────────────────────────────────────────
 function subscribeChat(sid) {
   if (C.unsubChat) C.unsubChat();
-  const cRef = q(col('collab_sessions', sid, 'chat'), orderBy('sentAt','asc'));
+  const cRef = q(col('collab_sessions', sid, 'chat'), orderBy('sentAt', 'asc'));
   C.unsubChat = onSnapshot(cRef, snap => {
     const msgs = [];
-    snap.forEach(d => msgs.push({...d.data(), id:d.id}));
+    snap.forEach(d => msgs.push({ ...d.data(), id: d.id }));
     renderChat(msgs);
   });
 }
@@ -297,8 +340,8 @@ function renderChat(msgs) {
   box.innerHTML = msgs.map(m => {
     const isMe = m.authorId === window.currentProfile?.id;
     if (m.system) return `<div class="chat-system">${esc(m.text)}</div>`;
-    return `<div class="chat-msg ${isMe?'me':'them'}">
-      ${!isMe ? `<div class="chat-author">${esc(m.authorName||'Invité')}</div>` : ''}
+    return `<div class="chat-msg ${isMe ? 'me' : 'them'}">
+      ${!isMe ? `<div class="chat-author">${esc(m.authorName || 'Invité')}</div>` : ''}
       <div class="chat-bubble">${esc(m.text)}</div>
       <div class="chat-time">${fmtTime(m.sentAt)}</div>
     </div>`;
@@ -306,22 +349,22 @@ function renderChat(msgs) {
   box.scrollTop = box.scrollHeight;
 }
 
-async function envoyerMsgChat(text, system=false) {
+async function envoyerMsgChat(text, system = false) {
   if (!C.sessionId || (!text?.trim() && !system)) return;
   await addD(col('collab_sessions', C.sessionId, 'chat'), {
-    text: text.trim(),
-    authorId:   window.currentProfile?.id || 'anon',
+    text:       text.trim(),
+    authorId:   window.currentProfile?.id   || 'anon',
     authorName: window.currentProfile?.company || 'Utilisateur',
     sentAt:     new Date().toISOString(),
     system,
   });
 }
 
-window._collabChatKeydown = function(e) {
-  if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); window._collabSendMsg(); }
+window._collabChatKeydown = function (e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); window._collabSendMsg(); }
 };
 
-window._collabSendMsg = async function() {
+window._collabSendMsg = async function () {
   const inp = document.getElementById('collab-chat-input');
   if (!inp) return;
   const text = inp.value.trim();
@@ -331,16 +374,24 @@ window._collabSendMsg = async function() {
 };
 
 // ─────────────────────────────────────────────────────────
-// 8. APPEL VIDÉO — WebRTC + Firebase RTDB signaling
+// 10. APPEL VIDÉO — WebRTC + Firebase RTDB signaling
 // ─────────────────────────────────────────────────────────
-const RTC_CFG = { iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'}] };
+const RTC_CFG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+  ],
+};
 
-window._collabDemarrerVideo = async function() {
-  if (!C.sessionId) { toast('Rejoignez une session d\'abord','error'); return; }
-  if (C.isVideoOpen) { toast('Appel déjà en cours','info'); return; }
+window._collabDemarrerVideo = async function () {
+  if (!C.sessionId) { toast('Rejoignez une session d\'abord', 'error'); return; }
+  if (C.isVideoOpen) { toast('Appel déjà en cours', 'info'); return; }
   try {
-    C.localStream = await navigator.mediaDevices.getUserMedia({video:true,audio:true});
-  } catch(e) { toast('Accès caméra refusé : '+e.message,'error'); return; }
+    C.localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+  } catch (e) {
+    toast('Accès caméra refusé : ' + e.message, 'error');
+    return;
+  }
 
   C.isVideoOpen = true;
   const panel = document.getElementById('video-panel');
@@ -348,7 +399,7 @@ window._collabDemarrerVideo = async function() {
   const lv = document.getElementById('local-video');
   if (lv) { lv.srcObject = C.localStream; lv.muted = true; }
 
-  // Écouter les signaux entrants (RTDB)
+  // Écouter les signaux entrants
   if (_rtdb && window.currentProfile?.id) {
     const sigRef = ref(_rtdb, `collab_rtc/${C.sessionId}/signals/${window.currentProfile.id}`);
     onValue(sigRef, async snap => {
@@ -358,41 +409,60 @@ window._collabDemarrerVideo = async function() {
     });
   }
 
-  // Envoyer offres aux membres déjà là
+  // Envoyer offres aux membres présents
   for (const m of C.members) {
     if (m.uid !== window.currentProfile.id) await _envoyerOffer(m.uid);
   }
-  await envoyerMsgChat('📹 ' + (window.currentProfile.company||'Un membre') + ' a démarré un appel vidéo.', true);
+  await envoyerMsgChat('📹 ' + (window.currentProfile.company || 'Un membre') + ' a démarré un appel vidéo.', true);
 };
 
 async function _envoyerOffer(targetUid) {
-  const pc = _getPeer(targetUid);
+  const pc    = _getPeer(targetUid);
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
   const sigRef = ref(_rtdb, `collab_rtc/${C.sessionId}/signals/${targetUid}`);
-  await set(sigRef, { type:'offer', sdp:offer.sdp, fromUid:window.currentProfile.id, fromName:window.currentProfile.company||'Hôte' });
+  await set(sigRef, {
+    type:     'offer',
+    sdp:      offer.sdp,
+    fromUid:  window.currentProfile.id,
+    fromName: window.currentProfile.company || 'Hôte',
+  });
 }
 
 async function _traiterSignal(signal) {
   if (!signal?.fromUid) return;
   const from = signal.fromUid;
-  if (signal.type==='offer') {
+
+  if (signal.type === 'offer') {
     if (!C.localStream) {
-      try { C.localStream=await navigator.mediaDevices.getUserMedia({video:true,audio:true}); C.isVideoOpen=true; const p=document.getElementById('video-panel'); if(p)p.style.display='flex'; const lv=document.getElementById('local-video'); if(lv){lv.srcObject=C.localStream;lv.muted=true;} }
-      catch(e){ console.warn('[COLLAB RTC] cam:', e.message); return; }
+      try {
+        C.localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        C.isVideoOpen = true;
+        const p = document.getElementById('video-panel');
+        if (p) p.style.display = 'flex';
+        const lv = document.getElementById('local-video');
+        if (lv) { lv.srcObject = C.localStream; lv.muted = true; }
+      } catch (e) {
+        console.warn('[COLLAB RTC] cam:', e.message);
+        return;
+      }
     }
     const pc = _getPeer(from);
-    await pc.setRemoteDescription(new RTCSessionDescription({type:'offer',sdp:signal.sdp}));
+    await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: signal.sdp }));
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
     const sigRef = ref(_rtdb, `collab_rtc/${C.sessionId}/signals/${from}`);
-    await set(sigRef, { type:'answer', sdp:answer.sdp, fromUid:window.currentProfile.id });
-  } else if (signal.type==='answer') {
+    await set(sigRef, { type: 'answer', sdp: answer.sdp, fromUid: window.currentProfile.id });
+
+  } else if (signal.type === 'answer') {
     const pc = C.peerConnections[from];
-    if (pc) await pc.setRemoteDescription(new RTCSessionDescription({type:'answer',sdp:signal.sdp}));
-  } else if (signal.type==='ice') {
+    if (pc) await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: signal.sdp }));
+
+  } else if (signal.type === 'ice') {
     const pc = C.peerConnections[from];
-    if (pc&&signal.candidate) { try { await pc.addIceCandidate(new RTCIceCandidate(signal.candidate)); } catch(e){} }
+    if (pc && signal.candidate) {
+      try { await pc.addIceCandidate(new RTCIceCandidate(signal.candidate)); } catch (e) {}
+    }
   }
 }
 
@@ -404,11 +474,11 @@ function _getPeer(uid) {
   pc.onicecandidate = async e => {
     if (!e.candidate) return;
     const sigRef = ref(_rtdb, `collab_rtc/${C.sessionId}/signals/${uid}`);
-    await set(sigRef, { type:'ice', candidate:e.candidate.toJSON(), fromUid:window.currentProfile.id });
+    await set(sigRef, { type: 'ice', candidate: e.candidate.toJSON(), fromUid: window.currentProfile.id });
   };
-  pc.ontrack = e => _afficherVideoDistant(uid, e.streams[0]);
-  pc.onconnectionstatechange = () => {
-    if (['disconnected','failed'].includes(pc.connectionState)) _supprimerVideoDistant(uid);
+  pc.ontrack                  = e => _afficherVideoDistant(uid, e.streams[0]);
+  pc.onconnectionstatechange  = () => {
+    if (['disconnected', 'failed'].includes(pc.connectionState)) _supprimerVideoDistant(uid);
   };
   return pc;
 }
@@ -416,12 +486,12 @@ function _getPeer(uid) {
 function _afficherVideoDistant(uid, stream) {
   const grid = document.getElementById('video-grid');
   if (!grid) return;
-  let tile = document.getElementById('vid-'+uid);
+  let tile = document.getElementById('vid-' + uid);
   if (!tile) {
-    tile = document.createElement('div');
+    tile           = document.createElement('div');
     tile.className = 'video-tile';
-    tile.id = 'vid-'+uid;
-    const name = C.members.find(m=>m.uid===uid)?.name||'Invité';
+    tile.id        = 'vid-' + uid;
+    const name     = C.members.find(m => m.uid === uid)?.name || 'Invité';
     tile.innerHTML = `<video autoplay playsinline></video><div class="vid-label">${esc(name)}</div>`;
     grid.appendChild(tile);
   }
@@ -430,24 +500,24 @@ function _afficherVideoDistant(uid, stream) {
 }
 
 function _supprimerVideoDistant(uid) {
-  document.getElementById('vid-'+uid)?.remove();
+  document.getElementById('vid-' + uid)?.remove();
   if (C.peerConnections[uid]) { C.peerConnections[uid].close(); delete C.peerConnections[uid]; }
 }
 
-window._collabTerminerAppel = async function() {
+window._collabTerminerAppel = async function () {
   C.isVideoOpen = false;
-  if (C.localStream) { C.localStream.getTracks().forEach(t=>t.stop()); C.localStream=null; }
-  Object.values(C.peerConnections).forEach(pc=>pc.close());
+  if (C.localStream) { C.localStream.getTracks().forEach(t => t.stop()); C.localStream = null; }
+  Object.values(C.peerConnections).forEach(pc => pc.close());
   C.peerConnections = {};
-  if (_rtdb&&C.sessionId&&window.currentProfile?.id) {
+  if (_rtdb && C.sessionId && window.currentProfile?.id) {
     await remove(ref(_rtdb, `collab_rtc/${C.sessionId}/signals/${window.currentProfile.id}`));
   }
   const panel = document.getElementById('video-panel');
   if (panel) panel.style.display = 'none';
-  toast('Appel terminé','info');
+  toast('Appel terminé', 'info');
 };
 
-window._collabToggleMic = function() {
+window._collabToggleMic = function () {
   if (!C.localStream) return;
   const t = C.localStream.getAudioTracks()[0];
   if (!t) return;
@@ -456,7 +526,7 @@ window._collabToggleMic = function() {
   if (btn) btn.textContent = t.enabled ? '🎤 Micro ON' : '🔇 Micro OFF';
 };
 
-window._collabToggleCam = function() {
+window._collabToggleCam = function () {
   if (!C.localStream) return;
   const t = C.localStream.getVideoTracks()[0];
   if (!t) return;
@@ -466,9 +536,9 @@ window._collabToggleCam = function() {
 };
 
 // ─────────────────────────────────────────────────────────
-// 9. QUITTER SESSION
+// 11. QUITTER SESSION
 // ─────────────────────────────────────────────────────────
-window._collabQuitter = async function() {
+window._collabQuitter = async function () {
   if (!C.sessionId) return;
   if (!confirm('Quitter la session de collaboration ?')) return;
   if (C.isVideoOpen) await window._collabTerminerAppel();
@@ -477,29 +547,29 @@ window._collabQuitter = async function() {
     await updateDoc(docRef('collab_sessions', C.sessionId), {
       members: arrayRemove(window.currentProfile.id),
     });
-    if (C.role==='host') {
-      await updateDoc(docRef('collab_sessions', C.sessionId), { active:false });
+    if (C.role === 'host') {
+      await updateDoc(docRef('collab_sessions', C.sessionId), { active: false });
     }
-  } catch(e){}
+  } catch (e) { console.warn('[COLLAB] quitter updateDoc:', e); }
+
   if (C.unsubJournal) C.unsubJournal();
   if (C.unsubChat)    C.unsubChat();
-  if (_rtdb && C.sessionId) {
-    off(ref(_rtdb, `collab_presence/${C.sessionId}`));
-  }
-  C.sessionId=null; C.sessionCode=null; C.role=null; C.members=[];
+  if (_rtdb && C.sessionId) off(ref(_rtdb, `collab_presence/${C.sessionId}`));
+
+  C.sessionId = null; C.sessionCode = null; C.role = null; C.members = [];
   renderCollabView();
   window.navigate('dashboard');
-  toast('Session quittée','info');
+  toast('Session quittée', 'info');
 };
 
 // ─────────────────────────────────────────────────────────
-// 10. MODAL ENVOI ÉCRITURE
+// 12. MODAL — ENVOI ÉCRITURE VERS SESSION
 // ─────────────────────────────────────────────────────────
-window._collabOuvrirModal = function() {
+window._collabOuvrirModal = function () {
   let modal = document.getElementById('collab-send-modal');
   if (!modal) {
-    modal = document.createElement('div');
-    modal.id = 'collab-send-modal';
+    modal           = document.createElement('div');
+    modal.id        = 'collab-send-modal';
     modal.className = 'modal-overlay';
     modal.innerHTML = `
       <div class="modal-box" style="width:640px;max-height:80vh;overflow-y:auto">
@@ -507,44 +577,50 @@ window._collabOuvrirModal = function() {
           <div class="modal-title">⬆ Envoyer une écriture vers la session</div>
           <button class="btn-modal-cancel" onclick="document.getElementById('collab-send-modal').style.display='none'">✕</button>
         </div>
-        <p style="font-size:12px;color:var(--muted);margin-bottom:12px">Sélectionnez une écriture de votre journal à partager avec l'équipe.</p>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:12px">
+          Sélectionnez une écriture de votre journal à partager avec l'équipe.
+        </p>
         <div id="collab-ecr-list"></div>
       </div>`;
     document.body.appendChild(modal);
   }
   modal.style.display = 'flex';
-  // Remplir liste
-  const ecrs = (window.ecritures||[]).slice(-30).reverse();
+
+  const ecrs   = (window.ecritures || []).slice(-30).reverse();
   const listEl = document.getElementById('collab-ecr-list');
   if (!listEl) return;
+
   if (!ecrs.length) {
     listEl.innerHTML = '<p style="text-align:center;color:var(--muted);padding:20px">Aucune écriture dans votre journal.</p>';
     return;
   }
-  listEl.innerHTML = ecrs.map((e,i) => `
+  listEl.innerHTML = ecrs.map((e, i) => `
     <div class="collab-ecr-select-row">
-      <span class="jnl-badge">${esc(e.journal||'')}</span>
-      <span style="color:var(--muted);font-size:11px">${esc(e.date||'')}</span>
-      <span style="flex:1">${esc(e.libelle||'Sans libellé')}</span>
-      <button class="btn btn-sm-wire" onclick="window._collabEnvoyerEcr(${i});document.getElementById('collab-send-modal').style.display='none'">Envoyer</button>
+      <span class="jnl-badge">${esc(e.journal || '')}</span>
+      <span style="color:var(--muted);font-size:11px">${esc(e.date || '')}</span>
+      <span style="flex:1">${esc(e.libelle || 'Sans libellé')}</span>
+      <button class="btn btn-sm-wire"
+        onclick="window._collabEnvoyerEcr(${i});document.getElementById('collab-send-modal').style.display='none'">
+        Envoyer
+      </button>
     </div>`).join('');
 };
 
-window._collabEnvoyerEcr = async function(idx) {
-  const ecrs = (window.ecritures||[]).slice(-30).reverse();
-  const ecr = ecrs[idx];
+window._collabEnvoyerEcr = async function (idx) {
+  const ecrs = (window.ecritures || []).slice(-30).reverse();
+  const ecr  = ecrs[idx];
   if (!ecr) return;
   await envoyerEcritureVersSession(ecr);
 };
 
 // ─────────────────────────────────────────────────────────
-// 11. RENDER VUE PRINCIPALE
+// 13. RENDER VUE PRINCIPALE
 // ─────────────────────────────────────────────────────────
 function renderCollabView() {
   const view = document.getElementById('view-collaboration');
   if (!view) return;
   const inSession = !!C.sessionId;
-  const isHost = C.role === 'host';
+  const isHost    = C.role === 'host';
 
   view.innerHTML = `
 
@@ -561,14 +637,17 @@ function renderCollabView() {
       <div class="video-grid" id="video-grid">
         <div class="video-tile local-tile">
           <video id="local-video" autoplay muted playsinline></video>
-          <div class="vid-label">${esc(window.currentProfile?.company||'Vous')} (vous)</div>
+          <div class="vid-label">${esc(window.currentProfile?.company || 'Vous')} (vous)</div>
         </div>
       </div>
     </div>
 
     <!-- PAGE HEADER -->
     <div class="ph">
-      <div><h1>Espace Collaborateur</h1><p>Travaillez à distance sur un journal en temps réel · max ${C.MAX_MEMBERS} collaborateurs</p></div>
+      <div>
+        <h1>Espace Collaborateur</h1>
+        <p>Travaillez à distance sur un journal en temps réel · max ${C.MAX_MEMBERS} collaborateurs</p>
+      </div>
       <div class="ph-actions">
         ${inSession ? `
           <button class="btn btn-sm-wire" onclick="window._collabDemarrerVideo()">📹 Appel vidéo</button>
@@ -622,9 +701,11 @@ function renderCollabView() {
         <!-- Barre session -->
         <div class="collab-session-bar">
           <div class="collab-session-info">
-            <span class="sess-role-badge ${isHost?'host':'guest'}">${isHost?'👑 Hôte':'👤 Invité'}</span>
+            <span class="sess-role-badge ${isHost ? 'host' : 'guest'}">${isHost ? '👑 Hôte' : '👤 Invité'}</span>
             <span class="sess-code">Code : <strong>${esc(C.sessionCode)}</strong></span>
-            <button class="btn-copy-code" onclick="navigator.clipboard.writeText('${C.sessionCode}');toast('Code copié !','success')" title="Copier">📋</button>
+            <button class="btn-copy-code"
+              onclick="navigator.clipboard.writeText('${C.sessionCode}');toast('Code copié !','success')"
+              title="Copier">📋</button>
           </div>
           <div id="collab-presence-bar" class="collab-presence-bar"></div>
           <span id="collab-member-count" class="collab-member-count">0 en ligne</span>
@@ -638,7 +719,8 @@ function renderCollabView() {
             <p>Partagez ce code avec vos collaborateurs (max ${C.MAX_MEMBERS})</p>
           </div>
           <div class="inv-code">${esc(C.sessionCode)}</div>
-          <button class="btn btn-sm-wire" onclick="navigator.clipboard.writeText('${C.sessionCode}');toast('Code copié !','success')">📋 Copier</button>
+          <button class="btn btn-sm-wire"
+            onclick="navigator.clipboard.writeText('${C.sessionCode}');toast('Code copié !','success')">📋 Copier</button>
         </div>` : ''}
 
         <!-- Journal partagé -->
@@ -683,39 +765,33 @@ function renderCollabView() {
     `}
   `;
 
-  // Re-render presence si déjà des membres
+  // Re-render presence si membres déjà chargés
   if (inSession) renderPresenceBar();
 }
 
 // ─────────────────────────────────────────────────────────
-// 12. EXPOSITIONS WINDOW (appelées depuis HTML onclick)
+// 14. EXPOSITIONS WINDOW
 // ─────────────────────────────────────────────────────────
-window._collabCreer    = creerSession;
+window._collabCreer     = creerSession;
 window._collabRejoindre = () => rejoindreSession();
 window.renderCollabView = renderCollabView;
 
 // ─────────────────────────────────────────────────────────
-// 13. PATCH navigate() — supporter 'collaboration'
+// 15. INIT ASYNCHRONE — Firebase en arrière-plan
+// Le patch navigate() est déjà fait (section 4).
+// On initialise Firebase ici sans bloquer le rendu.
 // ─────────────────────────────────────────────────────────
-await waitFB();
-await initRTDB();
+waitFB()
+  .then(() => initRTDB())
+  .then(() => {
+    // Si l'utilisateur est déjà sur la vue collaboration, re-render
+    if (document.getElementById('view-collaboration')?.classList.contains('active')) {
+      renderCollabView();
+    }
+    console.log('[COLLAB] Firebase prêt ✓');
+  })
+  .catch(e => console.error('[COLLAB] Init Firebase error:', e));
 
-const _origNav = window.navigate;
-window.navigate = function(view) {
-  if (view === 'collaboration') {
-    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-    const vEl = document.getElementById('view-collaboration');
-    if (vEl) vEl.classList.add('active');
-    document.querySelectorAll('.nav-item').forEach(n => {
-      if (n.textContent.toLowerCase().includes('collab')) n.classList.add('active');
-    });
-    renderCollabView();
-  } else {
-    _origNav(view);
-  }
-};
-
-// Rendre la vue au démarrage si déjà sur collaboration
+// Render initial (sans Firebase — affiche l'onboarding immédiatement)
 renderCollabView();
 console.log('[COLLAB] Module chargé ✓');
