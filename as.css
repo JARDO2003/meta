@@ -1528,161 +1528,125 @@ body { font-family:var(--font-body); background:var(--paper); color:var(--ink); 
   .saisie-ide-right { width:100%; height:360px; border-left:none; border-top:1px solid rgba(255,255,255,.08); }
   .saisie-ide-left { overflow-y:visible; }
 }
-/* ══════════════════════════════════════════
-   MODULE IMMOBILISATIONS & AMORTISSEMENTS
-   COMEO AI v4 — UEMOA (Bénin / Côte d'Ivoire)
-   ══════════════════════════════════════════ */
+/* ═══════════════════════════════════════
+   NOUVEAUX MODULES — PAIE, IMMOB, STOCKS,
+   RAPPROCHEMENT, BUDGETS, LETTRAGE, FISCAL
+   ═══════════════════════════════════════ */
 
-/* Vue principale */
-#view-immobilisations .immo-kpi-grid {
-  display:grid;
-  grid-template-columns:repeat(5,1fr);
-  gap:12px;
-  margin-bottom:18px;
+/* Étapes de clôture */
+.exercice-step {
+  display:flex; align-items:center; gap:12px;
+  background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--r); padding:14px 16px;
 }
-@media(max-width:900px){
-  #view-immobilisations .immo-kpi-grid { grid-template-columns:repeat(2,1fr); }
+.exercice-step-num {
+  width:32px; height:32px; border-radius:50%;
+  background:var(--warm-dim); border:1.5px solid var(--warm);
+  color:var(--warm); font-family:var(--font-mono); font-size:14px;
+  font-weight:700; display:flex; align-items:center; justify-content:center;
+  flex-shrink:0;
 }
+.exercice-step strong { font-size:13px; color:var(--ink); display:block; }
+.exercice-step .btn { margin-left:auto; }
 
 /* Tableau amortissement */
-.immo-table-wrap { overflow-x:auto; }
-.immo-table {
-  width:100%;
-  border-collapse:collapse;
-  font-size:12px;
-  min-width:960px;
-}
-.immo-table thead tr {
-  background:var(--ink);
-}
-.immo-table thead th {
-  padding:9px 10px;
-  color:var(--warm);
-  font-size:8px;
-  text-transform:uppercase;
-  letter-spacing:.1em;
-  font-family:var(--font-mono);
-  text-align:left;
-  white-space:nowrap;
-}
-.immo-table thead th.r { text-align:right; }
-.immo-table tbody tr {
-  border-bottom:1px solid var(--line);
-  transition:background .12s;
-}
-.immo-table tbody tr:hover { background:var(--surface3); }
-.immo-table tbody td {
-  padding:8px 10px;
-  color:var(--ink);
-  vertical-align:middle;
-}
-.immo-table tbody td.r { text-align:right; font-family:var(--font-mono); }
-.immo-table tbody td.muted { color:var(--muted); font-size:11px; }
-.immo-table .badge-cat {
-  display:inline-block;
-  padding:2px 7px;
-  border-radius:3px;
-  font-size:9px;
-  font-weight:700;
-  font-family:var(--font-mono);
-  letter-spacing:.06em;
-  background:var(--warm-dim);
-  color:var(--warm);
-  border:1px solid rgba(212,168,83,.25);
-}
-.immo-table .badge-cat.bi { background:rgba(37,99,235,.08); color:var(--blue); border-color:rgba(37,99,235,.2); }
-.immo-table .badge-cat.mat { background:rgba(22,163,74,.08); color:var(--green); border-color:rgba(22,163,74,.2); }
-.immo-table .badge-cat.mob { background:rgba(139,92,246,.08); color:#7c3aed; border-color:rgba(139,92,246,.2); }
-.immo-table .badge-cat.tr { background:rgba(192,57,43,.08); color:var(--rust); border-color:rgba(192,57,43,.2); }
-.immo-table .badge-cat.inc { background:rgba(26,122,110,.08); color:var(--teal); border-color:rgba(26,122,110,.2); }
-.immo-table .vnc-bar-wrap {
-  width:90px;
-  height:6px;
-  background:var(--line);
-  border-radius:3px;
-  overflow:hidden;
-  display:inline-block;
-  vertical-align:middle;
-  margin-right:6px;
-}
-.immo-table .vnc-bar {
-  height:100%;
-  border-radius:3px;
-  background:var(--warm);
-  transition:width .3s;
-}
-.immo-table .vnc-bar.low { background:var(--rust); }
-.immo-table .vnc-bar.mid { background:var(--teal); }
+.amort-table { width:100%; border-collapse:collapse; font-size:12.5px; }
+.amort-table th { background:var(--surface3); padding:8px 12px; text-align:left;
+  font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); }
+.amort-table td { padding:8px 12px; border-bottom:1px solid var(--line); }
+.amort-table tbody tr:hover { background:var(--surface2); }
+.amort-table .vnc-cell { font-family:var(--font-mono); font-weight:600; color:var(--teal); }
+.amort-table .dot-cell { font-family:var(--font-mono); color:var(--rust); }
 
-/* Tableau annuel dans la modal détail */
-.dotation-table {
-  width:100%;
-  border-collapse:collapse;
-  font-size:12px;
-  margin-top:12px;
-}
-.dotation-table th {
-  background:var(--ink);
-  color:var(--warm);
-  font-size:8px;
-  text-transform:uppercase;
-  letter-spacing:.1em;
-  font-family:var(--font-mono);
-  padding:7px 10px;
-  text-align:right;
-}
-.dotation-table th:first-child { text-align:left; }
-.dotation-table td {
-  padding:6px 10px;
-  border-bottom:1px solid var(--line);
-  text-align:right;
-  font-family:var(--font-mono);
-  font-size:12px;
-}
-.dotation-table td:first-child { text-align:left; font-family:var(--font-body); color:var(--ink); }
-.dotation-table tr.current-year td { background:var(--warm-dim); font-weight:600; }
-.dotation-table tr.total-row td { background:var(--surface3); font-weight:700; border-top:2px solid var(--line2); }
+/* Bulletin de paie */
+.bulletin-row { display:flex; justify-content:space-between; align-items:center;
+  padding:6px 0; border-bottom:1px solid var(--line); font-size:13px; }
+.bulletin-row:last-child { border-bottom:none; font-weight:700; }
+.bulletin-row .lbl { color:var(--muted); }
+.bulletin-row .val { font-family:var(--font-mono); font-weight:500; }
+.bulletin-row.total .lbl { color:var(--ink); font-weight:700; }
+.bulletin-row.total .val { color:var(--green); font-size:15px; }
+.bulletin-row.deduction .val { color:var(--rust); }
 
-/* Modal immobilisation */
-#immoModal .modal-box {
-  width:720px;
-  max-width:100%;
-  max-height:92vh;
-  overflow-y:auto;
+/* Stock table */
+.stock-card {
+  display:grid; grid-template-columns:1fr auto auto auto;
+  align-items:center; gap:12px;
+  padding:12px 16px; border-bottom:1px solid var(--line);
+  font-size:13px;
 }
-#immoDetailModal .modal-box {
-  width:780px;
-  max-width:100%;
-  max-height:92vh;
-  overflow-y:auto;
-}
+.stock-card:hover { background:var(--surface2); }
+.stock-alerte { color:var(--red); font-weight:700; font-size:11px; }
+.stock-badge { padding:3px 8px; border-radius:12px; font-size:10px; font-weight:600; }
+.stock-badge.ok { background:rgba(22,163,74,.1); color:var(--green); }
+.stock-badge.low { background:rgba(220,38,38,.1); color:var(--red); }
 
-/* Filtre barre immobilisations */
-#view-immobilisations .filtre-periode-bar {
-  margin-bottom:14px;
+/* Rapprochement */
+.rappr-row {
+  display:grid; grid-template-columns:auto 1fr auto auto auto;
+  gap:10px; align-items:center;
+  padding:10px 14px; border-bottom:1px solid var(--line); font-size:12.5px;
 }
+.rappr-row:hover { background:var(--surface2); }
+.rappr-check { width:18px; height:18px; border-radius:3px; border:1.5px solid var(--line);
+  cursor:pointer; display:flex; align-items:center; justify-content:center;
+  background:var(--surface); transition:.15s; }
+.rappr-check.matched { background:var(--green); border-color:var(--green); color:#fff; }
 
-/* Écriture dotation générée */
-.dotation-gen-box {
-  background:rgba(26,122,110,.07);
-  border:1px solid rgba(26,122,110,.2);
-  border-radius:var(--r);
-  padding:12px 14px;
-  margin-top:12px;
-  font-size:12px;
+/* Déclarations fiscales */
+.decl-section { margin-bottom:20px; }
+.decl-section-title { font-size:11px; font-weight:700; text-transform:uppercase;
+  letter-spacing:.12em; color:var(--muted); margin-bottom:10px; padding-bottom:6px;
+  border-bottom:1px solid var(--line); }
+.decl-row { display:flex; justify-content:space-between; align-items:center;
+  padding:8px 0; border-bottom:1px dashed var(--line); font-size:13px; }
+.decl-row:last-child { border-bottom:none; }
+.decl-row .lbl { color:var(--muted); }
+.decl-row .val { font-family:var(--font-mono); font-weight:600; }
+.decl-row.total { background:var(--warm-dim); padding:10px 12px; border-radius:var(--rs); margin-top:8px; }
+.decl-row.total .lbl { color:var(--ink); font-weight:700; }
+.decl-row.total .val { color:var(--warm); font-size:16px; }
+
+/* Balance âgée */
+.balance-agee-table { width:100%; border-collapse:collapse; font-size:12.5px; }
+.balance-agee-table th { background:var(--surface3); padding:8px 10px; text-align:right;
+  font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); }
+.balance-agee-table th:first-child { text-align:left; }
+.balance-agee-table td { padding:8px 10px; border-bottom:1px solid var(--line); text-align:right;
+  font-family:var(--font-mono); font-size:12px; }
+.balance-agee-table td:first-child { text-align:left; font-family:var(--font-body); font-weight:500; }
+.balance-agee-table .col-retard { color:var(--rust); font-weight:700; }
+.balance-agee-table .col-tres-retard { color:var(--red); font-weight:700; }
+
+/* Budget chart-like rows */
+.budget-row { padding:12px 0; border-bottom:1px solid var(--line); }
+.budget-row-header { display:flex; justify-content:space-between; margin-bottom:6px; font-size:13px; }
+.budget-row-compte { font-weight:600; color:var(--ink); }
+.budget-row-pct { font-family:var(--font-mono); font-weight:700; font-size:12px; }
+.budget-bar { height:6px; background:var(--line); border-radius:3px; overflow:hidden; }
+.budget-bar-fill { height:100%; border-radius:3px; transition:width .3s ease; background:var(--green); }
+.budget-bar-fill.warning { background:var(--warm); }
+.budget-bar-fill.danger { background:var(--red); }
+.budget-row-detail { display:flex; justify-content:space-between; margin-top:4px; font-size:11px; color:var(--muted); }
+
+/* Lettrage */
+.lettr-card { border:1px solid var(--line); border-radius:var(--rs); padding:14px; margin-bottom:10px; }
+.lettr-card-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+.lettr-card-tiers { font-weight:600; font-size:13px; }
+.lettr-card-solde { font-family:var(--font-mono); font-weight:700; }
+.lettr-card-solde.debiteur { color:var(--warm); }
+.lettr-card-solde.crediteur { color:var(--green); }
+.lettr-mvt-list { font-size:12px; color:var(--muted); }
+.lettr-mvt-row { display:flex; justify-content:space-between; padding:3px 0; border-bottom:1px solid var(--line); }
+.lettr-mvt-row:last-child { border-bottom:none; }
+.lettr-badge { display:inline-block; padding:2px 7px; border-radius:10px; font-size:9px; font-weight:700; }
+.lettr-badge.lettre { background:rgba(22,163,74,.1); color:var(--green); }
+.lettr-badge.non-lettre { background:rgba(220,38,38,.1); color:var(--red); }
+
+/* Import relevé bancaire */
+.import-drop-zone {
+  border:2px dashed var(--line2); border-radius:var(--r);
+  padding:32px; text-align:center; cursor:pointer;
+  transition:.2s; margin-bottom:16px;
 }
-.dotation-gen-box .dg-title {
-  font-weight:700;
-  color:var(--teal);
-  font-size:11px;
-  text-transform:uppercase;
-  letter-spacing:.08em;
-  margin-bottom:6px;
-}
-.dotation-gen-box table {
-  width:100%;
-  border-collapse:collapse;
-  font-size:12px;
-}
-.dotation-gen-box td { padding:3px 6px; }
-.dotation-gen-box td:last-child { text-align:right; font-family:var(--font-mono); }
+.import-drop-zone:hover { border-color:var(--warm); background:var(--warm-glow); }
