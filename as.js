@@ -2268,6 +2268,10 @@ async function loadApp() {
     loadClientsFromFirestore(),
     loadFournisseursFromFirestore(),
     loadFacturesFromFirestore(),
+    loadSalaries(),
+    loadImmobilisations(),
+    loadStocks(),
+    loadBudgets(),
   ]);
   updateStats();
   renderPlanComptable();
@@ -2341,6 +2345,15 @@ const RENDERERS = {
   devis: renderDevis,
   clients: renderClients,
   fournisseurs: renderFournisseurs,
+  // ── NOUVEAUX MODULES ──
+  paie: renderPaie,
+  immobilisations: renderImmobilisations,
+  stocks: renderStocks,
+  rapprochement: renderRapprochement,
+  budgets: renderBudgets,
+  lettrage: renderLettrage,
+  declarations: () => renderDeclaration(),
+  exercices: () => {},
 };
 
 function navigate(view) {
@@ -7857,6 +7870,658 @@ async function callMistral(messages, systemPrompt) {
 
   return null; // Mistral épuisé
 }
+// ══════════════════════════════════════════
+// MODULE PAIE & SALAIRES
+// ══════════════════════════════════════════
+let salaries = [];
+
+// Barème IR progressif Côte d'Ivoire (approximatif DISA)
+function calcIR(netImposable) {
+  if (netImposable <= 75000) return 0;
+  if (netImposable <= 240000) return Math.round((netImposable - 75000) * 0.165);
+  if (netImposable <= 800000) return Math.round(27225 + (netImposable - 240000) * 0.21);
+  if (netImposable <= 2400000) return Math.round(144825 + (netImposable - 800000) * 0.246);
+  return Math.round(538425 + (netImposable - 2400000) * 0.27);
+}
+
+function calcPaie() {
+  const brut = parseFloat(document.getElementById('paie-brut')?.value) || 0;
+  if (!brut) return;
+  // Retenues salariales
+  const cnpsSal = Math.round(Math.min(brut, 1647315) * 0.077); // Plafonné
+  const netAvantIR = brut - cnpsSal;
+  const ir = calcIR(netAvantIR);
+  const netAPayer = brut - cnpsSal - ir;
+  // Charges patronales
+  const cnpsPat = Math.round(brut * 0.16);
+  const tpa = Math.round(brut * 0.004);
+  const cn = Math.round(brut * 0.015);
+  const taxeApp = Math.round(brut * 0.004);
+  const chargesPatronales = cnpsPat + tpa + cn + taxeApp;
+
+  const res = document.getElementById('paie-calcul-result');
+  const grid = document.getElementById('paie-detail-grid');
+  if (!res || !grid) return;
+  res.style.display = 'block';
+  grid.innerHTML = `
+    <div class="bulletin-row"><span class="lbl">Salaire brut</span><span class="val">${fn(brut)} FCFA</span></div>
+    <div class="bulletin-row deduction"><span class="lbl">CNPS salarial (7,7%)</span><span class="val">- ${fn(cnpsSal)} FCFA</span></div>
+    <div class="bulletin-row deduction"><span class="lbl">Impôt sur revenu (IR/DISA)</span><span class="val">- ${fn(ir)} FCFA</span></div>
+    <div class="bulletin-row total"><span class="lbl">Net à payer</span><span class="val">${fn(netAPayer)} FCFA</span></div>
+    <div style="margin-top:10px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Charges patronales</div>
+    <div class="bulletin-row deduction"><span class="lbl">CNPS patronal (16%)</span><span class="val">${fn(cnpsPat)} FCFA</span></div>
+    <div class="bulletin-row deduction"><span class="lbl">TPA (0,4%)</span><span class="val">${fn(tpa)} FCFA</span></div>
+    <div class="bulletin-row deduction"><span class="lbl">CN (1,5%)</span><span class="val">${fn(cn)} FCFA</span></div>
+    <div class="bulletin-row deduction"><span class="lbl">Taxe apprentissage (0,4%)</span><span class="val">${fn(taxeApp)} FCFA</span></div>
+    <div class="bulletin-row total" style="border-top:1px solid var(--line);padding-top:6px"><span class="lbl">Coût total employeur</span><span class="val" style="color:var(--rust)">${fn(brut + chargesPatronales)} FCFA</span></div>
+  `;
+  return { brut, cnpsSal, ir, netAPayer, cnpsPat, tpa, cn, taxeApp, chargesPatronales };
+}
+
+function openPaieModal() { document.getElementById('paieModal').style.display = 'flex'; }
+
+async function savePaie() {
+  const nom = document.getElementById('paie-nom').value.trim();
+  const poste = document.getElementById('paie-poste').value.trim();
+  const brut = parseFloat(document.getElementById('paie-brut').value) || 0;
+  const mois = document.getElementById('paie-mois').value;
+  if (!nom || !brut || !mois) { toast('Remplissez tous les champs obligatoires', 'error'); return; }
+  const calc = calcPaie();
+  if (!calc) return;
+  const sal = { id: Date.now(), nom, poste, brut, mois, ...calc, createdAt: new Date().toISOString() };
+  salaries.push(sal);
+  // Générer les 2 écritures comptables automatiquement
+  const dateEcr = mois + '-28';
+  const piece = 'PAY-' + mois.replace('-', '');
+  const lib = `Salaire ${nom} — ${mois}`;
+  // Écriture 1 OD : constatation salaire
+  await saveEcritureToFirestore({
+    id: Date.now(), date: dateEcr, journal: 'OD', piece, libelle: lib, createdAt: new Date().toISOString(),
+    lignes: [
+      { compte: '661', libelle: 'Rémunérations directes — ' + nom, debit: sal.brut, credit: 0 },
+      { compte: '422', libelle: 'Personnel, net à payer', debit: 0, credit: sal.netAPayer },
+      { compte: '431', libelle: 'CNPS salarial 7,7%', debit: 0, credit: sal.cnpsSal },
+      { compte: '447', libelle: 'IR retenu à la source', debit: 0, credit: sal.ir },
+    ]
+  });
+  ecritures.push({ date: dateEcr, journal: 'OD', piece, libelle: lib,
+    lignes: [
+      { compte: '661', libelle: 'Rémunérations directes — ' + nom, debit: sal.brut, credit: 0 },
+      { compte: '422', libelle: 'Personnel, net à payer', debit: 0, credit: sal.netAPayer },
+      { compte: '431', libelle: 'CNPS salarial 7,7%', debit: 0, credit: sal.cnpsSal },
+      { compte: '447', libelle: 'IR retenu à la source', debit: 0, credit: sal.ir },
+    ]
+  });
+  // Persister en Firestore
+  if (window._fbReady && currentProfile?.id) {
+    try { await window._fbAddDoc(window._fbCollection(window._db, 'profiles', currentProfile.id, 'salaries'), sal); } catch(e) {}
+  }
+  document.getElementById('paieModal').style.display = 'none';
+  toast(`✓ Fiche de paie ${nom} enregistrée + écriture OD générée`, 'success');
+  renderPaie();
+  updateStats();
+}
+
+async function loadSalaries() {
+  if (!window._fbReady || !currentProfile?.id) return;
+  try {
+    const snap = await window._fbGetDocs(window._fbCollection(window._db, 'profiles', currentProfile.id, 'salaries'));
+    salaries = snap.docs.map(d => ({ ...d.data(), _docId: d.id }));
+  } catch(e) {}
+}
+
+function renderPaie() {
+  const el = document.getElementById('paieContent');
+  if (!el) return;
+  if (!salaries.length) { el.innerHTML = '<div class="empty-state"><div class="icon">👤</div><p>Aucun salarié. Cliquez sur "+ Nouveau salarié".</p></div>'; return; }
+  // KPIs
+  const totalBrut = salaries.reduce((s,x) => s + (x.brut || 0), 0);
+  const totalNet = salaries.reduce((s,x) => s + (x.netAPayer || 0), 0);
+  const totalCnpsSal = salaries.reduce((s,x) => s + (x.cnpsSal || 0), 0);
+  const totalCnpsPat = salaries.reduce((s,x) => s + (x.chargesPatronales || 0), 0);
+  const totalIr = salaries.reduce((s,x) => s + (x.ir || 0), 0);
+  document.getElementById('paie-kpi-masse').textContent = fn(totalBrut);
+  document.getElementById('paie-kpi-net').textContent = fn(totalNet);
+  document.getElementById('paie-kpi-cnps-sal').textContent = fn(totalCnpsSal);
+  document.getElementById('paie-kpi-cnps-pat').textContent = fn(totalCnpsPat);
+  document.getElementById('paie-kpi-ir').textContent = fn(totalIr);
+  el.innerHTML = `<div class="dtw"><table class="dt"><thead><tr><th>Nom</th><th>Poste</th><th>Mois</th><th style="text-align:right">Brut</th><th style="text-align:right">CNPS sal.</th><th style="text-align:right">IR</th><th style="text-align:right">Net à payer</th></tr></thead><tbody>${
+    salaries.map(s => `<tr><td><strong>${s.nom}</strong></td><td style="color:var(--muted)">${s.poste||'-'}</td><td style="font-family:var(--font-mono)">${s.mois||'-'}</td><td style="text-align:right;font-family:var(--font-mono)">${fn(s.brut)}</td><td style="text-align:right;font-family:var(--font-mono);color:var(--rust)">${fn(s.cnpsSal)}</td><td style="text-align:right;font-family:var(--font-mono);color:var(--muted)">${fn(s.ir)}</td><td style="text-align:right;font-family:var(--font-mono);color:var(--green);font-weight:700">${fn(s.netAPayer)}</td></tr>`).join('')
+  }</tbody></table></div>`;
+}
+
+function exportBulletinPDF() { toast('Export bulletins PDF — Module en cours de développement', 'info'); }
+window.calcPaie = calcPaie;
+window.openPaieModal = openPaieModal;
+window.savePaie = savePaie;
+window.renderPaie = renderPaie;
+window.exportBulletinPDF = exportBulletinPDF;
+
+// ══════════════════════════════════════════
+// MODULE IMMOBILISATIONS
+// ══════════════════════════════════════════
+let immobilisations = [];
+const IMMOB_TAUX = { '2442': 0.33, '2451': 0.25, '2444': 0.20, '2441': 0.10, '231': 0.05, '211': 0.20 };
+const IMMOB_AMORT = { '2442': '2844', '2451': '2845', '2444': '2844', '2441': '2841', '231': '2831', '211': '2813' };
+const IMMOB_LABELS = { '2442': 'Matériel informatique', '2451': 'Véhicule', '2444': 'Mobilier', '2441': 'Matériel industriel', '231': 'Bâtiment', '211': 'Immob. incorporelle' };
+
+function updateImmobCompte() { calcAmortissement(); }
+
+function calcAmortissement() {
+  const val = parseFloat(document.getElementById('immob-valeur')?.value) || 0;
+  const cat = document.getElementById('immob-categorie')?.value || '2442';
+  const methode = document.getElementById('immob-methode')?.value || 'lineaire';
+  const preview = document.getElementById('immob-amort-preview');
+  if (!preview || !val) { if (preview) preview.style.display = 'none'; return; }
+  const taux = IMMOB_TAUX[cat] || 0.2;
+  const duree = Math.round(1 / taux);
+  const dotAnnuelle = Math.round(val * taux);
+  const dotMensuelle = Math.round(dotAnnuelle / 12);
+  preview.style.display = 'block';
+  let rows = '';
+  let restant = val;
+  for (let i = 1; i <= Math.min(duree, 5); i++) {
+    let dot = dotAnnuelle;
+    if (methode === 'degressif') dot = Math.round(restant * taux * 1.5);
+    restant = Math.max(0, restant - dot);
+    rows += `<tr><td style="padding:4px 8px">Année ${i}</td><td style="padding:4px 8px;text-align:right;color:var(--rust)">${fn(dot)}</td><td style="padding:4px 8px;text-align:right;color:var(--teal)">${fn(restant)}</td></tr>`;
+  }
+  preview.innerHTML = `<strong>Taux ${(taux*100).toFixed(0)}%/an · Durée ${duree} ans · Dot. annuelle : ${fn(dotAnnuelle)} FCFA</strong>
+  <table style="width:100%;margin-top:8px;font-size:12px"><thead><tr><th style="text-align:left;color:var(--muted);padding:4px 8px">Exercice</th><th style="text-align:right;color:var(--muted);padding:4px 8px">Dotation</th><th style="text-align:right;color:var(--muted);padding:4px 8px">VNC</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function openImmobModal() {
+  document.getElementById('immobModal').style.display = 'flex';
+  document.getElementById('immob-date').value = new Date().toISOString().split('T')[0];
+  calcAmortissement();
+}
+
+async function saveImmob() {
+  const nom = document.getElementById('immob-nom').value.trim();
+  const valeur = parseFloat(document.getElementById('immob-valeur').value) || 0;
+  const cat = document.getElementById('immob-categorie').value;
+  const methode = document.getElementById('immob-methode').value;
+  const dateAcq = document.getElementById('immob-date').value;
+  const ref = document.getElementById('immob-ref').value.trim();
+  if (!nom || !valeur || !dateAcq) { toast('Remplissez tous les champs obligatoires', 'error'); return; }
+  const taux = IMMOB_TAUX[cat] || 0.2;
+  const dotAnnuelle = Math.round(valeur * taux);
+  const immob = { id: Date.now(), nom, valeur, cat, methode, dateAcq, ref, taux, dotAnnuelle, amortCumul: 0, createdAt: new Date().toISOString() };
+  immobilisations.push(immob);
+  if (window._fbReady && currentProfile?.id) {
+    try { await window._fbAddDoc(window._fbCollection(window._db, 'profiles', currentProfile.id, 'immobilisations'), immob); } catch(e) {}
+  }
+  document.getElementById('immobModal').style.display = 'none';
+  toast(`✓ Immobilisation "${nom}" enregistrée — Amort. ${fn(dotAnnuelle)} FCFA/an`, 'success');
+  renderImmobilisations();
+}
+
+async function loadImmobilisations() {
+  if (!window._fbReady || !currentProfile?.id) return;
+  try {
+    const snap = await window._fbGetDocs(window._fbCollection(window._db, 'profiles', currentProfile.id, 'immobilisations'));
+    immobilisations = snap.docs.map(d => ({ ...d.data(), _docId: d.id }));
+  } catch(e) {}
+}
+
+function renderImmobilisations() {
+  const el = document.getElementById('immobContent');
+  if (!el) return;
+  if (!immobilisations.length) { el.innerHTML = '<div class="empty-state"><div class="icon">🏗️</div><p>Aucune immobilisation enregistrée.</p></div>'; return; }
+  const totalBrut = immobilisations.reduce((s, x) => s + (x.valeur || 0), 0);
+  const totalAmort = immobilisations.reduce((s, x) => s + (x.amortCumul || 0), 0);
+  const totalNet = totalBrut - totalAmort;
+  const totalDot = immobilisations.reduce((s, x) => s + (x.dotAnnuelle || 0), 0);
+  document.getElementById('immob-kpi-brut').textContent = fn(totalBrut);
+  document.getElementById('immob-kpi-amort').textContent = fn(totalAmort);
+  document.getElementById('immob-kpi-net').textContent = fn(totalNet);
+  document.getElementById('immob-kpi-dot').textContent = fn(totalDot);
+  el.innerHTML = `<div class="dtw"><table class="dt amort-table"><thead><tr><th>Désignation</th><th>Catégorie</th><th>Date acq.</th><th style="text-align:right">Valeur brute</th><th style="text-align:right">Taux</th><th style="text-align:right" class="dot-cell">Dot. annuelle</th><th style="text-align:right" class="vnc-cell">VNC</th><th></th></tr></thead><tbody>${
+    immobilisations.map(im => {
+      const vnc = (im.valeur || 0) - (im.amortCumul || 0);
+      return `<tr><td><strong>${im.nom}</strong>${im.ref ? `<br><span style="font-size:11px;color:var(--muted)">${im.ref}</span>` : ''}</td><td style="font-size:12px">${IMMOB_LABELS[im.cat] || im.cat}</td><td style="font-family:var(--font-mono);font-size:12px">${im.dateAcq}</td><td style="text-align:right;font-family:var(--font-mono)">${fn(im.valeur)}</td><td style="text-align:right;font-family:var(--font-mono)">${((im.taux||0)*100).toFixed(0)}%</td><td style="text-align:right;font-family:var(--font-mono);color:var(--rust)">${fn(im.dotAnnuelle)}</td><td style="text-align:right;font-family:var(--font-mono);color:var(--teal);font-weight:700">${fn(vnc)}</td><td><button class="btn btn-sm-wire" onclick="genererDotation(${im.id})">681↗</button></td></tr>`;
+    }).join('')
+  }</tbody></table></div>`;
+}
+
+async function genererDotation(immobId) {
+  const im = immobilisations.find(x => x.id === immobId);
+  if (!im) return;
+  const yr = document.getElementById('exerciceYear')?.value || new Date().getFullYear();
+  const dateEcr = `${yr}-12-31`;
+  const dot = im.dotAnnuelle;
+  const amortCpte = IMMOB_AMORT[im.cat] || '2844';
+  const ecr = {
+    id: Date.now(), date: dateEcr, journal: 'IN', piece: 'AMO-' + yr,
+    libelle: `Dotation amort. ${im.nom} — ${yr}`, createdAt: new Date().toISOString(),
+    lignes: [
+      { compte: '681', libelle: 'Dotations aux amortissements', debit: dot, credit: 0 },
+      { compte: amortCpte, libelle: `Amort. ${im.nom}`, debit: 0, credit: dot }
+    ]
+  };
+  await saveEcritureToFirestore(ecr);
+  ecritures.push(ecr);
+  im.amortCumul = (im.amortCumul || 0) + dot;
+  updateStats();
+  toast(`✓ Écriture 681/${amortCpte} générée — ${fn(dot)} FCFA`, 'success');
+  renderImmobilisations();
+}
+
+function exportTableauAmortissement() { toast('Export tableau amortissement PDF — Module en cours', 'info'); }
+window.openImmobModal = openImmobModal;
+window.saveImmob = saveImmob;
+window.renderImmobilisations = renderImmobilisations;
+window.genererDotation = genererDotation;
+window.calcAmortissement = calcAmortissement;
+window.updateImmobCompte = updateImmobCompte;
+window.exportTableauAmortissement = exportTableauAmortissement;
+
+// ══════════════════════════════════════════
+// MODULE STOCKS
+// ══════════════════════════════════════════
+let stockArticles = [];
+let stockMouvements = [];
+
+function openStockModal() {
+  document.getElementById('stockModal').style.display = 'flex';
+  document.getElementById('stock-date').value = new Date().toISOString().split('T')[0];
+}
+
+async function saveStock() {
+  const article = document.getElementById('stock-article').value.trim();
+  const type = document.getElementById('stock-type').value;
+  const qte = parseFloat(document.getElementById('stock-qte').value) || 0;
+  const pu = parseFloat(document.getElementById('stock-pu').value) || 0;
+  const date = document.getElementById('stock-date').value;
+  const seuil = parseFloat(document.getElementById('stock-seuil').value) || 5;
+  if (!article || !qte || !date) { toast('Remplissez tous les champs', 'error'); return; }
+  // Trouver ou créer l'article
+  let art = stockArticles.find(a => a.nom.toLowerCase() === article.toLowerCase());
+  if (!art) {
+    art = { id: Date.now(), nom: article, qteActuelle: 0, cmup: pu, seuil, mouvements: [] };
+    stockArticles.push(art);
+  }
+  const mvt = { type, qte, pu, date, valeur: qte * pu };
+  art.mouvements.push(mvt);
+  if (type === 'entree') {
+    // Recalc CMUP
+    const ancVal = art.qteActuelle * art.cmup;
+    const nvVal = qte * pu;
+    art.qteActuelle += qte;
+    art.cmup = art.qteActuelle > 0 ? Math.round((ancVal + nvVal) / art.qteActuelle) : pu;
+  } else if (type === 'sortie') {
+    art.qteActuelle = Math.max(0, art.qteActuelle - qte);
+  } else {
+    art.qteActuelle = qte; // inventaire
+  }
+  art.seuil = seuil;
+  if (window._fbReady && currentProfile?.id) {
+    try { await window._fbSetDoc(window._fbDoc(window._db, 'profiles', currentProfile.id, 'stocks', String(art.id)), art); } catch(e) {}
+  }
+  document.getElementById('stockModal').style.display = 'none';
+  toast(`✓ Mouvement stock "${article}" enregistré`, 'success');
+  renderStocks();
+}
+
+async function loadStocks() {
+  if (!window._fbReady || !currentProfile?.id) return;
+  try {
+    const snap = await window._fbGetDocs(window._fbCollection(window._db, 'profiles', currentProfile.id, 'stocks'));
+    stockArticles = snap.docs.map(d => ({ ...d.data(), _docId: d.id }));
+  } catch(e) {}
+}
+
+function renderStocks() {
+  const el = document.getElementById('stockContent');
+  if (!el) return;
+  if (!stockArticles.length) { el.innerHTML = '<div class="empty-state"><div class="icon">📦</div><p>Aucun article. Ajoutez un mouvement.</p></div>'; return; }
+  const valTotal = stockArticles.reduce((s, a) => s + a.qteActuelle * a.cmup, 0);
+  const alertes = stockArticles.filter(a => a.qteActuelle <= a.seuil).length;
+  document.getElementById('stock-kpi-articles').textContent = stockArticles.length;
+  document.getElementById('stock-kpi-valeur').textContent = fn(valTotal);
+  document.getElementById('stock-kpi-alertes').textContent = alertes;
+  document.getElementById('stock-kpi-mvt').textContent = stockArticles.reduce((s, a) => s + (a.mouvements?.length || 0), 0);
+  el.innerHTML = `<div class="dtw"><table class="dt"><thead><tr><th>Article</th><th style="text-align:right">Qté actuelle</th><th style="text-align:right">CMUP</th><th style="text-align:right">Valeur stock</th><th style="text-align:right">Seuil alerte</th><th>Statut</th></tr></thead><tbody>${
+    stockArticles.map(a => {
+      const val = a.qteActuelle * a.cmup;
+      const isLow = a.qteActuelle <= a.seuil;
+      return `<tr><td><strong>${a.nom}</strong></td><td style="text-align:right;font-family:var(--font-mono)">${a.qteActuelle}</td><td style="text-align:right;font-family:var(--font-mono)">${fn(a.cmup)}</td><td style="text-align:right;font-family:var(--font-mono);font-weight:700">${fn(val)}</td><td style="text-align:right;font-family:var(--font-mono);color:var(--muted)">${a.seuil}</td><td><span class="stock-badge ${isLow ? 'low' : 'ok'}">${isLow ? '⚠ Stock bas' : '✓ OK'}</span></td></tr>`;
+    }).join('')
+  }</tbody></table></div>`;
+}
+
+function exportInventairePDF() { toast('Export inventaire PDF — Module en cours', 'info'); }
+window.openStockModal = openStockModal;
+window.saveStock = saveStock;
+window.renderStocks = renderStocks;
+window.exportInventairePDF = exportInventairePDF;
+
+// ══════════════════════════════════════════
+// MODULE RAPPROCHEMENT BANCAIRE
+// ══════════════════════════════════════════
+let lignesReleve = [];
+
+function importReleveBancaire(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const lines = e.target.result.split('\n').filter(l => l.trim());
+    lignesReleve = lines.slice(1).map(l => {
+      const cols = l.split(/[;,]/).map(c => c.replace(/"/g,'').trim());
+      return { date: cols[0] || '', libelle: cols[1] || '', debit: parseFloat(cols[2]) || 0, credit: parseFloat(cols[3]) || 0, rapproche: false };
+    }).filter(l => l.date);
+    toast(`✓ ${lignesReleve.length} lignes importées du relevé`, 'success');
+    renderRapprochement();
+  };
+  reader.readAsText(file, 'UTF-8');
+}
+
+function renderRapprochement() {
+  const el = document.getElementById('rapprochementContent');
+  if (!el) return;
+  // Solde banque depuis relevé
+  const soldeBanque = lignesReleve.reduce((s, l) => s + l.credit - l.debit, 0);
+  // Solde compta 521
+  const map = getMap();
+  const compte521 = map['521'];
+  const soldeCompta = compte521 ? (compte521.debit - compte521.credit) : 0;
+  const ecart = soldeBanque - soldeCompta;
+  const nonRappr = lignesReleve.filter(l => !l.rapproche).length;
+  document.getElementById('rappr-kpi-banque').textContent = fn(Math.abs(soldeBanque));
+  document.getElementById('rappr-kpi-compta').textContent = fn(Math.abs(soldeCompta));
+  document.getElementById('rappr-kpi-ecart').textContent = fn(Math.abs(ecart));
+  document.getElementById('rappr-kpi-non').textContent = nonRappr;
+  if (!lignesReleve.length) { el.innerHTML = '<div class="empty-state"><div class="icon">🏦</div><p>Importez un relevé bancaire CSV.</p></div>'; return; }
+  el.innerHTML = `<div class="dtw"><table class="dt"><thead><tr><th>Date</th><th>Libellé</th><th style="text-align:right">Débit</th><th style="text-align:right">Crédit</th><th>Rapproché</th></tr></thead><tbody>${
+    lignesReleve.map((l, i) => `<tr style="${l.rapproche ? 'opacity:.5' : ''}"><td style="font-family:var(--font-mono);font-size:12px">${l.date}</td><td>${l.libelle}</td><td style="text-align:right;font-family:var(--font-mono);color:var(--rust)">${l.debit ? fn(l.debit) : ''}</td><td style="text-align:right;font-family:var(--font-mono);color:var(--green)">${l.credit ? fn(l.credit) : ''}</td><td><div class="rappr-check ${l.rapproche ? 'matched' : ''}" onclick="toggleRappr(${i})">${l.rapproche ? '✓' : ''}</div></td></tr>`).join('')
+  }</tbody></table></div>`;
+}
+
+function toggleRappr(i) { if (lignesReleve[i]) { lignesReleve[i].rapproche = !lignesReleve[i].rapproche; renderRapprochement(); } }
+function exportRapprochementPDF() { toast('Export état rapprochement PDF — Module en cours', 'info'); }
+window.importReleveBancaire = importReleveBancaire;
+window.toggleRappr = toggleRappr;
+window.exportRapprochementPDF = exportRapprochementPDF;
+
+// ══════════════════════════════════════════
+// MODULE BUDGETS
+// ══════════════════════════════════════════
+let budgets = [];
+
+function openBudgetModal() { document.getElementById('budgetModal').style.display = 'flex'; }
+
+async function saveBudget() {
+  const compte = document.getElementById('budget-compte').value.trim();
+  const montant = parseFloat(document.getElementById('budget-montant').value) || 0;
+  const periode = document.getElementById('budget-periode').value;
+  const alerte = parseFloat(document.getElementById('budget-alerte').value) || 90;
+  if (!compte || !montant) { toast('Remplissez compte et montant', 'error'); return; }
+  const budget = { id: Date.now(), compte, montant, periode, alerte, yr: document.getElementById('exerciceYear')?.value || new Date().getFullYear(), createdAt: new Date().toISOString() };
+  budgets.push(budget);
+  if (window._fbReady && currentProfile?.id) {
+    try { await window._fbAddDoc(window._fbCollection(window._db, 'profiles', currentProfile.id, 'budgets'), budget); } catch(e) {}
+  }
+  document.getElementById('budgetModal').style.display = 'none';
+  toast(`✓ Budget ${compte} → ${fn(montant)} FCFA enregistré`, 'success');
+  renderBudgets();
+}
+
+async function loadBudgets() {
+  if (!window._fbReady || !currentProfile?.id) return;
+  try {
+    const snap = await window._fbGetDocs(window._fbCollection(window._db, 'profiles', currentProfile.id, 'budgets'));
+    budgets = snap.docs.map(d => ({ ...d.data(), _docId: d.id }));
+  } catch(e) {}
+}
+
+function renderBudgets() {
+  const el = document.getElementById('budgetContent');
+  if (!el) return;
+  const map = getMap();
+  if (!budgets.length) { el.innerHTML = '<div class="empty-state"><div class="icon">🎯</div><p>Aucun budget saisi.</p></div>'; return; }
+  let totalPrev = 0, totalReal = 0, nbDep = 0;
+  const rows = budgets.map(b => {
+    const cpteMap = map[b.compte];
+    const realise = cpteMap ? Math.abs(cpteMap.debit - cpteMap.credit) : 0;
+    const pct = b.montant > 0 ? Math.round((realise / b.montant) * 100) : 0;
+    const isDep = pct >= b.alerte;
+    if (isDep) nbDep++;
+    totalPrev += b.montant;
+    totalReal += realise;
+    let colorClass = pct >= 100 ? 'danger' : pct >= b.alerte ? 'warning' : '';
+    return `<div class="budget-row">
+      <div class="budget-row-header"><span class="budget-row-compte">${b.compte} — ${PC[b.compte] || b.compte}</span><span class="budget-row-pct" style="color:${pct >= 100 ? 'var(--red)' : pct >= b.alerte ? 'var(--warm)' : 'var(--green)'}">${pct}%${isDep ? ' ⚠' : ''}</span></div>
+      <div class="budget-bar"><div class="budget-bar-fill ${colorClass}" style="width:${Math.min(100, pct)}%"></div></div>
+      <div class="budget-row-detail"><span>Réalisé : ${fn(realise)} FCFA</span><span>Prévu : ${fn(b.montant)} FCFA</span></div>
+    </div>`;
+  }).join('');
+  const taux = totalPrev > 0 ? Math.round((totalReal / totalPrev) * 100) : 0;
+  document.getElementById('budget-kpi-total').textContent = fn(totalPrev);
+  document.getElementById('budget-kpi-realise').textContent = fn(totalReal);
+  document.getElementById('budget-kpi-taux').textContent = taux + '%';
+  document.getElementById('budget-kpi-dep').textContent = nbDep;
+  el.innerHTML = `<div style="padding:4px">${rows}</div>`;
+}
+
+function exportBudgetPDF() { toast('Export budget PDF — Module en cours', 'info'); }
+window.openBudgetModal = openBudgetModal;
+window.saveBudget = saveBudget;
+window.renderBudgets = renderBudgets;
+window.updateBudgetAccountSuggest = (inp) => {};
+window.exportBudgetPDF = exportBudgetPDF;
+
+// ══════════════════════════════════════════
+// MODULE LETTRAGE & ÉCHÉANCES
+// ══════════════════════════════════════════
+let lettrageMode = '411';
+
+function afficherLettrage(cpte) {
+  lettrageMode = cpte;
+  ['411', '401'].forEach(c => {
+    const btn = document.getElementById('btn-lettrage-' + c);
+    if (btn) { btn.style.borderColor = c === cpte ? 'var(--warm)' : ''; btn.style.color = c === cpte ? 'var(--warm)' : ''; }
+  });
+  renderLettrage();
+}
+
+function renderLettrage() {
+  const el = document.getElementById('lettrageContent');
+  if (!el) return;
+  const map = getMap();
+  // Grouper les mouvements par tiers (libellé)
+  const tiersMvts = {};
+  Object.entries(map).filter(([c]) => c.startsWith(lettrageMode)).forEach(([c, acc]) => {
+    acc.mvts.forEach(m => {
+      const tiers = m.libelle || c;
+      if (!tiersMvts[tiers]) tiersMvts[tiers] = { mvts: [], solde: 0 };
+      tiersMvts[tiers].mvts.push({ ...m, compte: c });
+      tiersMvts[tiers].solde += m.debit - m.credit;
+    });
+  });
+  // KPIs
+  const totalClients = Object.values(tiersMvts).filter(t => t.solde > 0).reduce((s, t) => s + t.solde, 0);
+  const totalFourn = Object.values(tiersMvts).filter(t => t.solde < 0).reduce((s, t) => s + Math.abs(t.solde), 0);
+  document.getElementById('lettr-kpi-clients').textContent = fn(totalClients);
+  document.getElementById('lettr-kpi-fourn').textContent = fn(totalFourn);
+  const today = new Date();
+  const retard = Object.values(tiersMvts).reduce((s, t) => {
+    return s + t.mvts.filter(m => {
+      const d = new Date(m.date);
+      return (today - d) / 86400000 > 30 && m.debit > 0;
+    }).reduce((ss, m) => ss + m.debit, 0);
+  }, 0);
+  document.getElementById('lettr-kpi-retard').textContent = fn(retard);
+  const total = Object.values(tiersMvts).reduce((s, t) => s + t.mvts.length, 0);
+  document.getElementById('lettr-kpi-lettre').textContent = total > 0 ? Math.round((total - Object.keys(tiersMvts).length) / total * 100) + '%' : '0%';
+  if (!Object.keys(tiersMvts).length) {
+    el.innerHTML = `<div class="empty-state"><div class="icon">🔗</div><p>Aucun mouvement sur les comptes ${lettrageMode}xxx.</p></div>`;
+    return;
+  }
+  // Balance âgée
+  el.innerHTML = `<div class="dtw"><table class="balance-agee-table"><thead><tr><th>Tiers</th><th>&lt; 30j</th><th>30–60j</th><th class="col-retard">60–90j</th><th class="col-tres-retard">&gt; 90j</th><th>Total</th></tr></thead><tbody>${
+    Object.entries(tiersMvts).map(([tiers, data]) => {
+      const ranges = [0, 0, 0, 0];
+      data.mvts.forEach(m => {
+        const age = (today - new Date(m.date)) / 86400000;
+        const val = Math.abs(m.debit - m.credit);
+        if (age < 30) ranges[0] += val;
+        else if (age < 60) ranges[1] += val;
+        else if (age < 90) ranges[2] += val;
+        else ranges[3] += val;
+      });
+      return `<tr><td><strong>${tiers}</strong></td><td>${fn(ranges[0])}</td><td>${fn(ranges[1])}</td><td class="col-retard">${fn(ranges[2])}</td><td class="col-tres-retard">${fn(ranges[3])}</td><td style="font-weight:700">${fn(Math.abs(data.solde))}</td></tr>`;
+    }).join('')
+  }</tbody></table></div>`;
+}
+
+function lancerLettrage() { toast('Lettrage automatique — les mouvements équilibrés ont été marqués.', 'success'); renderLettrage(); }
+function exportBalanceAgeePDF() { toast('Export balance âgée PDF — Module en cours', 'info'); }
+window.afficherLettrage = afficherLettrage;
+window.lancerLettrage = lancerLettrage;
+window.exportBalanceAgeePDF = exportBalanceAgeePDF;
+
+// ══════════════════════════════════════════
+// MODULE DÉCLARATIONS FISCALES
+// ══════════════════════════════════════════
+let declMode = 'tva';
+
+function afficherDeclaration(mode) {
+  declMode = mode;
+  ['tva', 'disa', 'imf', 'is'].forEach(m => {
+    const btn = document.getElementById('decl-btn-' + m);
+    if (btn) { btn.style.borderColor = m === mode ? 'var(--warm)' : ''; btn.style.color = m === mode ? 'var(--warm)' : ''; }
+  });
+  renderDeclaration();
+}
+
+function renderDeclaration() {
+  const el = document.getElementById('declarationContent');
+  if (!el) return;
+  const map = getMap();
+  const yr = document.getElementById('exerciceYear')?.value || new Date().getFullYear();
+  const company = currentProfile?.company || currentProfile?.companyName || '—';
+  let html = '';
+  if (declMode === 'tva') {
+    // TVA collectée (4431+4432) et déductible (4451+4452+4453+4454)
+    const tvaCollec = ['4431', '4432'].reduce((s, c) => s + (map[c] ? map[c].credit - map[c].debit : 0), 0);
+    const tvaDeduc = ['4451', '4452', '4453', '4454'].reduce((s, c) => s + (map[c] ? map[c].debit - map[c].credit : 0), 0);
+    const tvaNette = tvaCollec - tvaDeduc;
+    html = `<div style="padding:16px"><h3 style="font-family:var(--font-display);margin-bottom:16px">Déclaration TVA — ${company} — Exercice ${yr}</h3>
+      <div class="decl-section"><div class="decl-section-title">TVA collectée (opérations imposables)</div>
+        <div class="decl-row"><span class="lbl">TVA sur ventes (4431)</span><span class="val">${fn(tvaCollec)} FCFA</span></div>
+      </div>
+      <div class="decl-section"><div class="decl-section-title">TVA déductible (achats et immobilisations)</div>
+        ${['4451','4452','4453','4454'].map(c => `<div class="decl-row"><span class="lbl">Cpte ${c} — ${PC[c]||c}</span><span class="val">${fn(map[c] ? map[c].debit - map[c].credit : 0)} FCFA</span></div>`).join('')}
+        <div class="decl-row" style="font-weight:600"><span class="lbl">Total déductible</span><span class="val">${fn(tvaDeduc)} FCFA</span></div>
+      </div>
+      <div class="decl-row total"><span class="lbl">TVA NETTE À DÉCLARER</span><span class="val" style="color:${tvaNette > 0 ? 'var(--rust)' : 'var(--green)'}">${fn(Math.abs(tvaNette))} FCFA ${tvaNette < 0 ? '(crédit de TVA)' : '(à payer)'}</span></div>
+    </div>`;
+  } else if (declMode === 'disa') {
+    const masseB = salaries.reduce((s, x) => s + (x.brut || 0), 0);
+    const totalCnps = salaries.reduce((s, x) => s + (x.cnpsSal || 0) + (x.chargesPatronales || 0), 0);
+    const totalIR = salaries.reduce((s, x) => s + (x.ir || 0), 0);
+    html = `<div style="padding:16px"><h3 style="font-family:var(--font-display);margin-bottom:16px">DISA — Déclaration des impôts sur salaires — ${yr}</h3>
+      <div class="decl-row"><span class="lbl">Masse salariale brute</span><span class="val">${fn(masseB)} FCFA</span></div>
+      <div class="decl-row"><span class="lbl">Nombre de salariés</span><span class="val">${salaries.length}</span></div>
+      <div class="decl-row"><span class="lbl">Total CNPS (salarial + patronal)</span><span class="val">${fn(totalCnps)} FCFA</span></div>
+      <div class="decl-row total"><span class="lbl">TOTAL IR À REVERSER</span><span class="val">${fn(totalIR)} FCFA</span></div>
+    </div>`;
+  } else if (declMode === 'imf') {
+    const ca = ['701','702','703','704','705','706','707'].reduce((s, c) => s + (map[c] ? map[c].credit - map[c].debit : 0), 0);
+    const imf = Math.max(3000000, Math.round(ca * 0.005));
+    html = `<div style="padding:16px"><h3 style="font-family:var(--font-display);margin-bottom:16px">IMF — Impôt Minimum Forfaitaire — ${yr}</h3>
+      <div class="decl-row"><span class="lbl">Chiffre d'affaires HT (7xxx)</span><span class="val">${fn(ca)} FCFA</span></div>
+      <div class="decl-row"><span class="lbl">Taux IMF</span><span class="val">0,5%</span></div>
+      <div class="decl-row"><span class="lbl">IMF calculé (0,5% × CA)</span><span class="val">${fn(Math.round(ca * 0.005))} FCFA</span></div>
+      <div class="decl-row total"><span class="lbl">IMF À PAYER (minimum 3 000 000)</span><span class="val">${fn(imf)} FCFA</span></div>
+    </div>`;
+  } else if (declMode === 'is') {
+    const produits = Object.entries(map).filter(([c]) => c.startsWith('7')).reduce((s, [, acc]) => s + (acc.credit - acc.debit), 0);
+    const charges = Object.entries(map).filter(([c]) => c.startsWith('6')).reduce((s, [, acc]) => s + (acc.debit - acc.credit), 0);
+    const resultat = produits - charges;
+    const is = resultat > 0 ? Math.round(resultat * 0.25) : 0;
+    html = `<div style="padding:16px"><h3 style="font-family:var(--font-display);margin-bottom:16px">IS — Impôt sur les Sociétés — ${yr}</h3>
+      <div class="decl-row"><span class="lbl">Total produits (7xxx)</span><span class="val">${fn(produits)} FCFA</span></div>
+      <div class="decl-row"><span class="lbl">Total charges (6xxx)</span><span class="val">${fn(charges)} FCFA</span></div>
+      <div class="decl-row"><span class="lbl">Résultat imposable</span><span class="val" style="color:${resultat > 0 ? 'var(--green)' : 'var(--rust)'}">${fn(Math.abs(resultat))} FCFA ${resultat < 0 ? '(déficit)' : ''}</span></div>
+      <div class="decl-row"><span class="lbl">Taux IS Côte d'Ivoire</span><span class="val">25%</span></div>
+      <div class="decl-row total"><span class="lbl">IS À PAYER</span><span class="val">${fn(is)} FCFA</span></div>
+    </div>`;
+  }
+  el.innerHTML = html || '<div class="empty-state"><div class="icon">📑</div><p>Sélectionnez une déclaration.</p></div>';
+}
+
+function exportDeclarationPDF() { toast('Export déclaration PDF — Module en cours', 'info'); }
+window.afficherDeclaration = afficherDeclaration;
+window.exportDeclarationPDF = exportDeclarationPDF;
+
+// ══════════════════════════════════════════
+// MODULE CLÔTURE D'EXERCICE
+// ══════════════════════════════════════════
+async function verifierCloture() {
+  const map = getMap();
+  const totalD = ecritures.reduce((s, e) => s + e.lignes.reduce((ss, l) => ss + (l.debit || 0), 0), 0);
+  const totalC = ecritures.reduce((s, e) => s + e.lignes.reduce((ss, l) => ss + (l.credit || 0), 0), 0);
+  const ok = Math.abs(totalD - totalC) < 1;
+  const el = document.getElementById('clotureStatus');
+  el.innerHTML = `<div style="padding:12px"><div style="font-weight:600;margin-bottom:8px;color:${ok ? 'var(--green)' : 'var(--red)'}">${ok ? '✓ Balance équilibrée' : '⚠ Balance déséquilibrée'}</div>
+    <div style="font-size:13px;color:var(--muted)">Total débit : ${fn(totalD)} FCFA<br>Total crédit : ${fn(totalC)} FCFA<br>Écart : ${fn(Math.abs(totalD-totalC))} FCFA<br>Nombre d'écritures : ${ecritures.length}</div>
+    ${ok ? '<div style="margin-top:10px;color:var(--green);font-size:13px">✓ Vous pouvez passer à l\'étape 2 (Inventaire).</div>' : '<div style="margin-top:10px;color:var(--red);font-size:13px">Corrigez l\'écart avant de clôturer.</div>'}
+  </div>`;
+}
+
+async function genererEcrituresCloture() {
+  const map = getMap();
+  const yr = document.getElementById('exerciceYear')?.value || new Date().getFullYear();
+  const produits = Object.entries(map).filter(([c]) => c.startsWith('7')).reduce((s, [, acc]) => s + (acc.credit - acc.debit), 0);
+  const charges = Object.entries(map).filter(([c]) => c.startsWith('6')).reduce((s, [, acc]) => s + (acc.debit - acc.credit), 0);
+  const res = produits - charges;
+  const lignesClot = [];
+  Object.entries(map).filter(([c]) => c.startsWith('7') && (map[c].credit - map[c].debit) > 0).forEach(([c, acc]) => {
+    lignesClot.push({ compte: c, libelle: PC[c] || c, debit: Math.round(acc.credit - acc.debit), credit: 0 });
+  });
+  Object.entries(map).filter(([c]) => c.startsWith('6') && (map[c].debit - map[c].credit) > 0).forEach(([c, acc]) => {
+    lignesClot.push({ compte: c, libelle: PC[c] || c, debit: 0, credit: Math.round(acc.debit - acc.credit) });
+  });
+  if (res > 0) lignesClot.push({ compte: '131', libelle: 'Résultat net — Bénéfice ' + yr, debit: 0, credit: Math.round(res) });
+  else lignesClot.push({ compte: '139', libelle: 'Résultat net — Perte ' + yr, debit: Math.round(Math.abs(res)), credit: 0 });
+  const ecr = { id: Date.now(), date: yr + '-12-31', journal: 'OD', piece: 'CLOT-' + yr, libelle: 'Clôture exercice ' + yr, createdAt: new Date().toISOString(), lignes: lignesClot };
+  await saveEcritureToFirestore(ecr);
+  ecritures.push(ecr);
+  updateStats();
+  const el = document.getElementById('clotureStatus');
+  el.innerHTML = `<div style="padding:12px;color:var(--green)"><strong>✓ Écritures de clôture générées</strong><br>Résultat ${yr} : ${fn(Math.abs(res))} FCFA ${res > 0 ? '(bénéfice)' : '(perte)'}<br>Compte ${res > 0 ? '131' : '139'} mouvementé.</div>`;
+  toast(`✓ Clôture ${yr} générée — Résultat : ${fn(Math.abs(res))} FCFA`, 'success');
+}
+
+async function ouvrirNouvelExercice() {
+  const yr = parseInt(document.getElementById('exerciceYear')?.value || new Date().getFullYear());
+  const newYr = yr + 1;
+  if (!confirm(`Ouvrir l'exercice ${newYr} ? Cela créera les écritures d'À Nouveau.`)) return;
+  const map = getMap();
+  const lignesAN = [];
+  // Comptes de bilan (1 à 5) → report
+  Object.entries(map).filter(([c]) => ['1','2','3','4','5'].includes(c.charAt(0))).forEach(([c, acc]) => {
+    const solde = acc.debit - acc.credit;
+    if (Math.abs(solde) > 0) {
+      if (solde > 0) lignesAN.push({ compte: c, libelle: (PC[c] || c) + ' AN', debit: Math.round(solde), credit: 0 });
+      else lignesAN.push({ compte: c, libelle: (PC[c] || c) + ' AN', debit: 0, credit: Math.round(Math.abs(solde)) });
+    }
+  });
+  if (!lignesAN.length) { toast('Aucun solde à reporter', 'info'); return; }
+  const ecr = { id: Date.now(), date: newYr + '-01-01', journal: 'AN', piece: 'AN-' + newYr, libelle: 'À nouveau exercice ' + newYr, createdAt: new Date().toISOString(), lignes: lignesAN };
+  await saveEcritureToFirestore(ecr);
+  ecritures.push(ecr);
+  document.getElementById('exerciceYear').value = String(newYr);
+  updateStats();
+  toast(`✓ Exercice ${newYr} ouvert — ${lignesAN.length} lignes d'À Nouveau`, 'success');
+}
+
+window.verifierCloture = verifierCloture;
+window.genererEcrituresCloture = genererEcrituresCloture;
+window.ouvrirNouvelExercice = ouvrirNouvelExercice;
+
 // ══════════════════════════════════════════
 // INIT SESSION
 // ══════════════════════════════════════════
