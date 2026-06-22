@@ -9,7 +9,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <link rel="stylesheet" href="as.css">
-<link rel="stylesheet" href="collab.css">
 </head>
 <body>
 
@@ -228,13 +227,6 @@
 <div class="sb-section">
   <div class="sb-title">Référentiel</div>
   <div class="nav-item" onclick="navigate('plancomptable');closeMobileSidebar()"><span class="nav-icon">⊙</span> Plan SYSCOHADA</div>
-</div>
-<div class="sb-section">
-  <div class="sb-title">Travail d'équipe</div>
-  <div class="nav-item" onclick="navigate('collaboration');closeMobileSidebar()">
-    <span class="nav-icon">👥</span> Collaboration
-    <span class="nav-collab-badge">LIVE</span>
-  </div>
 </div>
     <div class="sb-stats-card">
       <div class="stat-row"><span class="lbl">Écritures</span><span class="val" id="s-ecritures">0</span></div>
@@ -902,12 +894,6 @@
   </div>
 </div>
 </div>
-
-<!-- VUE COLLABORATION — contenu généré par collab.js -->
-<div class="view" id="view-collaboration"></div>
-
 <script type="module" src="as.js"></script>
-<script type="module" src="collab.js"></script>
 </body>
-</html>
 </html>
