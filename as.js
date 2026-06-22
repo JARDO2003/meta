@@ -7972,7 +7972,6 @@ async function loadCollabImports() {
 
 // ── Créer une session (hôte) ─────────────────────────
 async function creerSessionCollaboration() {
-  if (!requireSubscriptionAccess()) return;
   await loadCollabImports();
 
   if (collabSessionCode) {
@@ -8010,7 +8009,6 @@ async function creerSessionCollaboration() {
 
 // ── Rejoindre une session (invité) ───────────────────
 async function rejoindreSesssion() {
-  if (!requireSubscriptionAccess()) return;
   await loadCollabImports();
 
   const code = (document.getElementById('collabCodeInput')?.value || '').trim().toUpperCase();
