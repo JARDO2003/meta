@@ -7888,9 +7888,7 @@ async function doForgotPassword() {
   }
 }
 
-
-
-
+// ══════════════════════════════════════════════════════
 // COLLABORATION WEBRTC — Jusqu'à 6 collaborateurs
 // Signalisation via Firebase Firestore (sessions/{code})
 // ══════════════════════════════════════════════════════
