@@ -8106,7 +8106,7 @@ async function savePaie() {
   renderPaie();
   updateStats();
 }
-
+let salaries = [];
 async function loadSalaries() {
   if (!window._fbReady || !currentProfile?.id) return;
   try {
