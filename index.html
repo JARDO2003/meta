@@ -180,11 +180,11 @@
 <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeMobileSidebar()"></div>
 
 <!-- APP -->
-<div id="serviceUnavailableBanner" class="service-unavailable-banner" style="display:none" aria-live="polite">
-  <span>⏳</span>
-  <span>Veuillez patienter quelques instants ou revenez plus tard. L'assistant IA est temporairement indisponible.</span>
-</div>
 <div class="shell" id="appShell" style="display:none">
+  <div id="serviceUnavailableBanner" class="service-unavailable-banner" style="display:none" aria-live="polite">
+    <span>⏳</span>
+    <span>Veuillez patienter quelques instants ou revenez plus tard. L'assistant IA est temporairement indisponible.</span>
+  </div>
   <div class="topbar">
     <button class="mobile-menu-btn" onclick="toggleMobileSidebar()" aria-label="Menu">☰</button>
     <div class="logo-wrap">
@@ -251,11 +251,10 @@
       <div class="stat-row"><span class="lbl">Total crédit</span><span class="val" id="s-credit">0</span></div>
       <div class="stat-row"><span class="lbl">Équilibre</span><span class="val g" id="s-equil">✓</span></div>
     </div>
-  </div>
-<div class="nav-item" onclick="navigate('tafire')">
-  <svg viewBox="0 0 24 24"><path d="M3 3h18v2H3V3zm0 4h12v2H3V7zm0 4h18v2H3v-2zm0 4h12v2H3v-2zm0 4h18v2H3v-2z"/></svg>
-  TAFIRE
-</div>
+    <div class="nav-item" onclick="navigate('tafire');closeMobileSidebar()"><span class="nav-icon">📊</span> TAFIRE</div>
+  </div><!-- end sidebar -->
+
+  <div class="main">
 <!-- ═══════════════════ FACTURES ═══════════════════ -->
 <div class="view" id="view-factures">
   <div class="ph">
@@ -548,8 +547,6 @@
     </div>
   </div>
 </div>
-
-  <div class="main">
 
     <!-- DASHBOARD -->
     <div class="view active" id="view-dashboard">
@@ -1213,7 +1210,6 @@
     <div class="rstat"><div class="rstat-dot" style="background:#3b82f6"></div><span>Latence</span><span class="rstat-val">&lt; 400ms</span></div>
     <div class="rstat"><div class="rstat-dot" style="background:#8b5cf6"></div><span>Langue</span><span class="rstat-val">Français</span></div>
   </div>
-</div>
 </div>
 <script type="module" src="as.js"></script>
 </body>
