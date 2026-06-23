@@ -123,12 +123,6 @@ let serverConfigLoaded = false;
 const aiMemoryCache = new Map();
 const AI_CACHE_MAX = 500;
 
-function loadServerConfig() {
-  serverConfigLoaded = true;
-  aiServiceAvailable = GROQ_API_KEYS.length > 0 || MISTRAL_API_KEYS.length > 0;
-  updateServiceAvailabilityUI();
-  console.log(`[COMEO] Config locale — ${GROQ_API_KEYS.length} clé(s) Groq, ${MISTRAL_API_KEYS.length} clé(s) Mistral`);
-}
 
 // ── Clé de cache universelle (utilisée par chat IA + robot vocal) ──
 function aiCacheKey(query) {
@@ -10542,3 +10536,4 @@ window.changerStatutEffet = changerStatutEffet;
 window.deleteEffet = deleteEffet;
 window.renderEffets = renderEffets;
 window.exportEffetsPDF = exportEffetsPDF;
+window.doLogin = doLogin;
