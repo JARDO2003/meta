@@ -97,69 +97,38 @@ document.dispatchEvent(new Event('firebase-ready'));
 // Les clés API Groq, Mistral et l'ordre des modèles sont gérés via server.html
 // JAMAIS de clé API en dur dans ce fichier
 // ══════════════════════════════════════════
-let GROQ_API_KEYS = [];    // Chargées depuis server_config/groq_keys
-let GROQ_MODELS = [];      // Chargées depuis server_config/models
-let MISTRAL_API_KEYS = []; // Chargées depuis server_config/mistral_keys
-let MISTRAL_MODELS = [];   // Chargées depuis server_config/mistral_models
-let groqKeyIdx = 0;        // Index rotation clés Groq
-let groqModelIdx = 0;      // Index rotation modèles Groq
-let mistralKeyIdx = 0;     // Index rotation clés Mistral
+// CONFIGURATION SERVEUR — Clés API locales
+// ══════════════════════════════════════════
+let GROQ_API_KEYS = [
+  'gsk_VOTRE_CLE_GROQ_ICI',
+  // 'gsk_DEUXIEME_CLE_SI_BESOIN',
+];
+let GROQ_MODELS = [
+  'llama-3.3-70b-versatile',
+  'qwen/qwen3-32b',
+  'meta-llama/llama-4-scout-17b-16e-instruct',
+];
+let MISTRAL_API_KEYS = [
+  'VOTRE_CLE_MISTRAL_ICI',
+];
+let MISTRAL_MODELS = [
+  'mistral-small-latest',
+  'open-mistral-7b',
+];
+let groqKeyIdx = 0;
+let groqModelIdx = 0;
+let mistralKeyIdx = 0;
 let serverConfigLoaded = false;
 
-// ── Cache mémoire local (session) — évite les allers-retours Firestore ──
-const aiMemoryCache = new Map(); // clé → réponse (RAM, vidé au rechargement)
-const AI_CACHE_MAX = 500;        // maximum d'entrées en mémoire
+// ── Cache mémoire local (session) ──
+const aiMemoryCache = new Map();
+const AI_CACHE_MAX = 500;
 
-async function loadServerConfig() {
-  try {
-    const [keysSnap, modelsSnap, mistralKeysSnap, mistralModelsSnap] = await Promise.all([
-      getDoc(doc(db, 'server_config', 'groq_keys')),
-      getDoc(doc(db, 'server_config', 'models')),
-      getDoc(doc(db, 'server_config', 'mistral_keys')),
-      getDoc(doc(db, 'server_config', 'mistral_models')),
-    ]);
-
-    if (keysSnap.exists()) {
-      const rawKeys = keysSnap.data().keys || [];
-      GROQ_API_KEYS = rawKeys.map((k) => k.value).filter(Boolean);
-    }
-
-    if (modelsSnap.exists()) {
-      GROQ_MODELS = modelsSnap.data().list || [];
-    }
-
-    if (mistralKeysSnap.exists()) {
-      const rawMistral = mistralKeysSnap.data().keys || [];
-      MISTRAL_API_KEYS = rawMistral.map((k) => k.value).filter(Boolean);
-    }
-
-    if (mistralModelsSnap.exists()) {
-      MISTRAL_MODELS = mistralModelsSnap.data().list || [];
-    }
-
-    // Valeurs par défaut si Firestore vide
-    if (GROQ_MODELS.length === 0) {
-      GROQ_MODELS = ['llama-3.3-70b-versatile', 'qwen/qwen3-32b', 'meta-llama/llama-4-scout-17b-16e-instruct'];
-    }
-    if (MISTRAL_MODELS.length === 0) {
-      MISTRAL_MODELS = ['mistral-small-latest', 'open-mistral-7b'];
-    }
-
-    serverConfigLoaded = true;
-    aiServiceAvailable = GROQ_API_KEYS.length > 0 || MISTRAL_API_KEYS.length > 0;
-    updateServiceAvailabilityUI();
-    console.log(
-      `[COMEO] Config chargée — ${GROQ_API_KEYS.length} clé(s) Groq, ` +
-      `${MISTRAL_API_KEYS.length} clé(s) Mistral, ${GROQ_MODELS.length} modèle(s) Groq`
-    );
-  } catch (e) {
-    console.warn('[COMEO] Erreur chargement config serveur :', e.message);
-    aiServiceAvailable = false;
-    serverConfigLoaded = true;
-    updateServiceAvailabilityUI();
-    GROQ_MODELS = ['llama-3.3-70b-versatile', 'qwen/qwen3-32b', 'meta-llama/llama-4-scout-17b-16e-instruct'];
-    MISTRAL_MODELS = ['mistral-small-latest', 'open-mistral-7b'];
-  }
+function loadServerConfig() {
+  serverConfigLoaded = true;
+  aiServiceAvailable = GROQ_API_KEYS.length > 0 || MISTRAL_API_KEYS.length > 0;
+  updateServiceAvailabilityUI();
+  console.log(`[COMEO] Config locale — ${GROQ_API_KEYS.length} clé(s) Groq, ${MISTRAL_API_KEYS.length} clé(s) Mistral`);
 }
 
 // ── Clé de cache universelle (utilisée par chat IA + robot vocal) ──
