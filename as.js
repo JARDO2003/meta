@@ -95,13 +95,12 @@ document.dispatchEvent(new Event('firebase-ready'));
 // ══════════════════════════════════════════
 // CONFIGURATION SERVEUR — Chargée depuis Firestore (server_config)
 // Les clés API Groq, Mistral et l'ordre des modèles sont gérés via server.html
-// JAMAIS de clé API en dur dans ce fichier
 // ══════════════════════════════════════════
 // CONFIGURATION SERVEUR — Clés API locales
+// Groq : épuisé → bascule automatique sur Mistral
 // ══════════════════════════════════════════
 let GROQ_API_KEYS = [
-  'gsk_VOTRE_CLE_GROQ_ICI',
-  // 'gsk_DEUXIEME_CLE_SI_BESOIN',
+  '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',
 ];
 let GROQ_MODELS = [
   'llama-3.3-70b-versatile',
@@ -109,7 +108,7 @@ let GROQ_MODELS = [
   'meta-llama/llama-4-scout-17b-16e-instruct',
 ];
 let MISTRAL_API_KEYS = [
-  'VOTRE_CLE_MISTRAL_ICI',
+  'RpLgnyiZO9XpUmqxYwfy9kD1lNjgTsYt',
 ];
 let MISTRAL_MODELS = [
   'mistral-small-latest',
