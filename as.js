@@ -7993,9 +7993,7 @@ async function callMistral(messages, systemPrompt) {
   return null; // Mistral épuisé
 }
 // ══════════════════════════════════════════
-// MODULE PAIE & SALAIRES
-// ══════════════════════════════════════════
-let salaries = [];
+
 
 // Barème IR progressif Côte d'Ivoire (approximatif DISA)
 function calcIR(netImposable) {
