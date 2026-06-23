@@ -7995,33 +7995,7 @@ async function callMistral(messages, systemPrompt) {
 // ══════════════════════════════════════════
 
 
-// Barème IR progressif Côte d'Ivoire (DGI 2024)
-const annuel = brutMensuel * 12;
-  const tranches = [
-    { max: 600000,   taux: 0 },
-    { max: 1800000,  taux: 0.10 },
-    { max: 3000000,  taux: 0.15 },
-    { max: 6000000,  taux: 0.20 },
-    { max: 12000000, taux: 0.25 },
-    { max: Infinity, taux: 0.30 },
-  ];
-  let ir = 0, prev = 0;
-  for (const t of tranches) {
-    if (annuel <= prev) break;
-    ir += (Math.min(annuel, t.max) - prev) * t.taux;
-    prev = t.max;
-  }
-  return Math.round(ir / 12);
 
-// ══════════════════════════════════════════
-// MODULE PAIE v2 — Barème IR ivoirien complet
-// ══════════════════════════════════════════
-
-
-// ══════════════════════════════════════════
-// MODULE PAIE v2 — Barème IR DGI 2024 complet
-// ══════════════════════════════════════════
-let salaries = [];
 
 // Barème IR progressif Côte d'Ivoire — DGI 2024 (annuel → mensuel)
 function calcIR(brutMensuel) {
