@@ -2273,6 +2273,13 @@ async function loadApp() {
     loadStocks(),
     loadBudgets(),
   ]);
+  // Charger les nouveaux modules
+  await Promise.all([
+    loadAnalytique(),
+    loadSocietes(),
+    loadCollaborateurs(),
+    loadEffets(),
+  ]);
   updateStats();
   renderPlanComptable();
   initSaisie();
@@ -2331,6 +2338,10 @@ const VIEW_KEYS = {
   devis: 'devis',
   clients: 'client',
   fournisseurs: 'fourniss',
+  analytique: 'analyt',
+  societes: 'société',
+  utilisateurs: 'utilisat',
+  effets: 'effets',
 };
 const RENDERERS = {
   journal: renderJournal,
@@ -2355,6 +2366,10 @@ const RENDERERS = {
   lettrage: renderLettrage,
   declarations: () => renderDeclaration(),
   exercices: () => {},
+  analytique: renderAnalytique,
+  societes: renderSocietes,
+  utilisateurs: renderUtilisateurs,
+  effets: renderEffets,
 };
 
 function navigate(view) {
@@ -8106,7 +8121,7 @@ async function savePaie() {
   renderPaie();
   updateStats();
 }
-let salaries = [];
+
 async function loadSalaries() {
   if (!window._fbReady || !currentProfile?.id) return;
   try {
@@ -9064,3 +9079,827 @@ window.openFournisseurModal = openFournisseurModal;
 window.closeFournisseurModal = closeFournisseurModal;
 window.saveFournisseur = saveFournisseur;
 window.renderFournisseurs = renderFournisseurs;
+// ══════════════════════════════════════════════════════════════════
+// ██  MODULE 1 — COMPTABILITÉ ANALYTIQUE (Centres de coût / Axes)
+// ══════════════════════════════════════════════════════════════════
+let centresCout = [];       // { id, code, libelle, type, responsable }
+let imputationsAnalyt = []; // { id, ecritureId, ligneIdx, centreId, montant, sens }
+
+async function loadAnalytique() {
+  if (!window._fbReady || !currentProfile?.id) return;
+  try {
+    const [snapC, snapI] = await Promise.all([
+      window._fbGetDocs(window._fbCollection(window._db, 'profiles', currentProfile.id, 'centres_cout')),
+      window._fbGetDocs(window._fbCollection(window._db, 'profiles', currentProfile.id, 'imputations_analytiques')),
+    ]);
+    centresCout = snapC.docs.map(d => ({ ...d.data(), _docId: d.id }));
+    imputationsAnalyt = snapI.docs.map(d => ({ ...d.data(), _docId: d.id }));
+  } catch(e) {}
+}
+
+function openCentreModal(id = null) {
+  const m = id ? centresCout.find(c => c.id === id) : null;
+  document.getElementById('centre-id').value = m ? m.id : '';
+  document.getElementById('centre-code').value = m ? m.code : '';
+  document.getElementById('centre-libelle').value = m ? m.libelle : '';
+  document.getElementById('centre-type').value = m ? m.type : 'exploitation';
+  document.getElementById('centre-responsable').value = m ? (m.responsable || '') : '';
+  document.getElementById('centreModal').style.display = 'flex';
+}
+
+async function saveCentre() {
+  const id = document.getElementById('centre-id').value;
+  const code = document.getElementById('centre-code').value.trim();
+  const libelle = document.getElementById('centre-libelle').value.trim();
+  const type = document.getElementById('centre-type').value;
+  const responsable = document.getElementById('centre-responsable').value.trim();
+  if (!code || !libelle) { toast('Code et libellé obligatoires', 'error'); return; }
+  if (!id && centresCout.find(c => c.code === code)) { toast('Ce code existe déjà', 'error'); return; }
+  const centre = { id: id || Date.now(), code, libelle, type, responsable, createdAt: new Date().toISOString() };
+  if (id) {
+    const idx = centresCout.findIndex(c => String(c.id) === String(id));
+    if (idx > -1) centresCout[idx] = centre;
+    if (window._fbReady && currentProfile?.id && centre._docId) {
+      try { await window._fbSetDoc(window._fbDoc(window._db, 'profiles', currentProfile.id, 'centres_cout', centre._docId), centre, { merge: true }); } catch(e) {}
+    }
+  } else {
+    centresCout.push(centre);
+    if (window._fbReady && currentProfile?.id) {
+      try { const ref = await window._fbAddDoc(window._fbCollection(window._db, 'profiles', currentProfile.id, 'centres_cout'), centre); centre._docId = ref.id; } catch(e) {}
+    }
+  }
+  document.getElementById('centreModal').style.display = 'none';
+  toast(`✓ Centre "${libelle}" enregistré`, 'success');
+  renderAnalytique();
+}
+
+async function deleteCentre(id) {
+  if (!confirm('Supprimer ce centre de coût ?')) return;
+  const centre = centresCout.find(c => String(c.id) === String(id));
+  centresCout = centresCout.filter(c => String(c.id) !== String(id));
+  if (window._fbReady && currentProfile?.id && centre?._docId) {
+    try { await window._fbDeleteDoc(window._fbDoc(window._db, 'profiles', currentProfile.id, 'centres_cout', centre._docId)); } catch(e) {}
+  }
+  toast('Centre supprimé', 'success');
+  renderAnalytique();
+}
+
+function openImputationModal(ecritureId, ligneIdx, montant, sens) {
+  document.getElementById('imput-ecr-id').value = ecritureId;
+  document.getElementById('imput-ligne-idx').value = ligneIdx;
+  document.getElementById('imput-montant').value = montant;
+  document.getElementById('imput-sens').value = sens;
+  const sel = document.getElementById('imput-centre');
+  sel.innerHTML = centresCout.map(c => `<option value="${c.id}">${c.code} — ${c.libelle}</option>`).join('');
+  const pct = document.getElementById('imput-pct');
+  pct.value = 100;
+  updateImputMontant();
+  document.getElementById('imputationModal').style.display = 'flex';
+}
+
+function updateImputMontant() {
+  const base = parseFloat(document.getElementById('imput-montant').value) || 0;
+  const pct = parseFloat(document.getElementById('imput-pct').value) || 100;
+  document.getElementById('imput-montant-calc').textContent = fn(Math.round(base * pct / 100)) + ' FCFA';
+}
+
+async function saveImputation() {
+  const ecritureId = document.getElementById('imput-ecr-id').value;
+  const ligneIdx = parseInt(document.getElementById('imput-ligne-idx').value);
+  const base = parseFloat(document.getElementById('imput-montant').value) || 0;
+  const pct = parseFloat(document.getElementById('imput-pct').value) || 100;
+  const centreId = document.getElementById('imput-centre').value;
+  const sens = document.getElementById('imput-sens').value;
+  const montant = Math.round(base * pct / 100);
+  const centre = centresCout.find(c => String(c.id) === String(centreId));
+  if (!centre) { toast('Sélectionnez un centre', 'error'); return; }
+  const imput = { id: Date.now(), ecritureId, ligneIdx, centreId, code: centre.code, libelle: centre.libelle, montant, pct, sens, createdAt: new Date().toISOString() };
+  imputationsAnalyt.push(imput);
+  if (window._fbReady && currentProfile?.id) {
+    try { await window._fbAddDoc(window._fbCollection(window._db, 'profiles', currentProfile.id, 'imputations_analytiques'), imput); } catch(e) {}
+  }
+  document.getElementById('imputationModal').style.display = 'none';
+  toast(`✓ Imputation ${fn(montant)} FCFA → ${centre.code}`, 'success');
+  renderAnalytique();
+}
+
+function renderAnalytique() {
+  const el = document.getElementById('analytiqueContent');
+  if (!el) return;
+
+  // KPIs par type de centre
+  const types = ['exploitation', 'support', 'projet'];
+  const totaux = {};
+  types.forEach(t => { totaux[t] = 0; });
+  imputationsAnalyt.forEach(i => {
+    const c = centresCout.find(x => String(x.id) === String(i.centreId));
+    if (c) totaux[c.type || 'exploitation'] = (totaux[c.type || 'exploitation'] || 0) + i.montant;
+  });
+
+  document.getElementById('analyt-kpi-centres').textContent = centresCout.length;
+  document.getElementById('analyt-kpi-imput').textContent = imputationsAnalyt.length;
+  document.getElementById('analyt-kpi-exploit').textContent = fn(totaux.exploitation || 0);
+  document.getElementById('analyt-kpi-projet').textContent = fn(totaux.projet || 0);
+
+  if (!centresCout.length) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">📊</div><p>Aucun centre de coût. Créez-en un pour commencer l\'analyse analytique.</p></div>';
+    return;
+  }
+
+  // Tableau des centres avec totaux
+  const rows = centresCout.map(c => {
+    const imput = imputationsAnalyt.filter(i => String(i.centreId) === String(c.id));
+    const totalDebit = imput.filter(i => i.sens === 'debit').reduce((s, i) => s + i.montant, 0);
+    const totalCredit = imput.filter(i => i.sens === 'credit').reduce((s, i) => s + i.montant, 0);
+    const solde = totalDebit - totalCredit;
+    const typeLabels = { exploitation: '🏭 Exploitation', support: '🔧 Support', projet: '📁 Projet' };
+    return `<tr>
+      <td><strong>${c.code}</strong></td>
+      <td>${c.libelle}</td>
+      <td><span class="analyt-badge analyt-badge-${c.type || 'exploitation'}">${typeLabels[c.type] || c.type}</span></td>
+      <td style="color:var(--muted);font-size:12px">${c.responsable || '—'}</td>
+      <td style="text-align:right;font-family:var(--font-mono)">${fn(totalDebit)}</td>
+      <td style="text-align:right;font-family:var(--font-mono)">${fn(totalCredit)}</td>
+      <td style="text-align:right;font-family:var(--font-mono);font-weight:700;color:${solde >= 0 ? 'var(--rust)' : 'var(--green)'}">${fn(Math.abs(solde))}</td>
+      <td>
+        <button class="btn btn-sm-wire" onclick="openCentreModal(${c.id})" title="Modifier">✎</button>
+        <button class="btn btn-sm-wire" onclick="deleteCentre(${c.id})" title="Supprimer" style="color:var(--rust)">✕</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `<div class="dtw"><table class="dt">
+    <thead><tr>
+      <th>Code</th><th>Libellé</th><th>Type</th><th>Responsable</th>
+      <th style="text-align:right">Charges</th>
+      <th style="text-align:right">Produits</th>
+      <th style="text-align:right">Solde</th>
+      <th></th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+    <tfoot><tr>
+      <td colspan="4" style="font-weight:700">TOTAL</td>
+      <td style="text-align:right;font-weight:700;font-family:var(--font-mono)">${fn(imputationsAnalyt.filter(i=>i.sens==='debit').reduce((s,i)=>s+i.montant,0))}</td>
+      <td style="text-align:right;font-weight:700;font-family:var(--font-mono)">${fn(imputationsAnalyt.filter(i=>i.sens==='credit').reduce((s,i)=>s+i.montant,0))}</td>
+      <td colspan="2"></td>
+    </tr></tfoot>
+  </table></div>`;
+}
+
+function exportAnalytiquePDF() {
+  if (!centresCout.length) { toast('Aucun centre de coût', 'error'); return; }
+  const { jsPDF } = window.jspdf;
+  if (!jsPDF) { toast('jsPDF non disponible', 'error'); return; }
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const company = currentProfile?.company || 'Entreprise';
+  const yr = document.getElementById('exerciceYear')?.value || new Date().getFullYear();
+  doc.setFillColor(10,11,16); doc.rect(0,0,297,22,'F');
+  doc.setTextColor(212,168,83); doc.setFontSize(12); doc.setFont('helvetica','bold');
+  doc.text(`RAPPORT ANALYTIQUE PAR CENTRES DE COÛT — ${company} — ${yr}`, 14, 14);
+  const rows = centresCout.map(c => {
+    const imput = imputationsAnalyt.filter(i => String(i.centreId) === String(c.id));
+    const charges = imput.filter(i=>i.sens==='debit').reduce((s,i)=>s+i.montant,0);
+    const produits = imput.filter(i=>i.sens==='credit').reduce((s,i)=>s+i.montant,0);
+    return [c.code, c.libelle, c.type||'exploitation', c.responsable||'—', fn(charges), fn(produits), fn(Math.abs(charges-produits))];
+  });
+  doc.autoTable({
+    startY: 26,
+    head: [['Code','Libellé','Type','Responsable','Charges (FCFA)','Produits (FCFA)','Solde (FCFA)']],
+    body: rows,
+    styles: { font:'helvetica', fontSize:8.5 },
+    headStyles: { fillColor:[10,11,16], textColor:[212,168,83] },
+    columnStyles: { 4:{halign:'right'}, 5:{halign:'right'}, 6:{halign:'right',fontStyle:'bold'} },
+    margin: { left:14, right:14 },
+  });
+  doc.save(`ANALYTIQUE_${company.replace(/\s+/g,'_')}_${yr}.pdf`);
+  toast('✓ Rapport analytique exporté', 'success');
+}
+
+window.openCentreModal = openCentreModal;
+window.saveCentre = saveCentre;
+window.deleteCentre = deleteCentre;
+window.openImputationModal = openImputationModal;
+window.updateImputMontant = updateImputMontant;
+window.saveImputation = saveImputation;
+window.renderAnalytique = renderAnalytique;
+window.exportAnalytiquePDF = exportAnalytiquePDF;
+
+// ══════════════════════════════════════════════════════════════════
+// ██  MODULE 2 — MULTI-ENTREPRISES / MULTI-EXERCICES
+// ══════════════════════════════════════════════════════════════════
+let allSocietes = [];  // Liste des sociétés liées au compte
+let currentSociete = null;
+
+async function loadSocietes() {
+  if (!window._fbReady || !currentProfile?.id) return;
+  try {
+    const snap = await window._fbGetDocs(window._fbCollection(window._db, 'profiles', currentProfile.id, 'societes'));
+    allSocietes = snap.docs.map(d => ({ ...d.data(), _docId: d.id }));
+    // Si aucune société n'existe, créer l'entreprise courante automatiquement
+    if (!allSocietes.length && currentProfile?.company) {
+      const soc = {
+        id: 'main_' + currentProfile.id,
+        nom: currentProfile.company || 'Entreprise principale',
+        forme: currentProfile.forme || 'SARL',
+        rccm: currentProfile.rccm || '',
+        nif: currentProfile.nif || '',
+        adresse: currentProfile.adresse || '',
+        exercices: [new Date().getFullYear()],
+        exerciceActif: new Date().getFullYear(),
+        estPrincipale: true,
+        createdAt: new Date().toISOString(),
+      };
+      try {
+        const ref = await window._fbAddDoc(window._fbCollection(window._db, 'profiles', currentProfile.id, 'societes'), soc);
+        soc._docId = ref.id;
+        allSocietes = [soc];
+        currentSociete = soc;
+      } catch(e) {}
+    } else {
+      currentSociete = allSocietes.find(s => s.estPrincipale) || allSocietes[0] || null;
+    }
+    renderSocietes();
+  } catch(e) {}
+}
+
+function openSocieteModal(id = null) {
+  const s = id ? allSocietes.find(x => String(x.id) === String(id)) : null;
+  document.getElementById('soc-id').value = s ? s.id : '';
+  document.getElementById('soc-nom').value = s ? s.nom : '';
+  document.getElementById('soc-forme').value = s ? (s.forme || 'SARL') : 'SARL';
+  document.getElementById('soc-rccm').value = s ? (s.rccm || '') : '';
+  document.getElementById('soc-nif').value = s ? (s.nif || '') : '';
+  document.getElementById('soc-adresse').value = s ? (s.adresse || '') : '';
+  document.getElementById('soc-exercice').value = s ? (s.exerciceActif || new Date().getFullYear()) : new Date().getFullYear();
+  document.getElementById('societeModal').style.display = 'flex';
+}
+
+async function saveSociete() {
+  const id = document.getElementById('soc-id').value;
+  const nom = document.getElementById('soc-nom').value.trim();
+  const forme = document.getElementById('soc-forme').value;
+  const rccm = document.getElementById('soc-rccm').value.trim();
+  const nif = document.getElementById('soc-nif').value.trim();
+  const adresse = document.getElementById('soc-adresse').value.trim();
+  const exerciceActif = parseInt(document.getElementById('soc-exercice').value) || new Date().getFullYear();
+  if (!nom) { toast('Le nom est obligatoire', 'error'); return; }
+
+  const soc = { id: id || String(Date.now()), nom, forme, rccm, nif, adresse, exerciceActif, exercices: [exerciceActif], estPrincipale: !allSocietes.length, createdAt: new Date().toISOString() };
+  if (id) {
+    const existing = allSocietes.find(s => String(s.id) === String(id));
+    if (existing) { soc.exercices = existing.exercices || [exerciceActif]; soc._docId = existing._docId; }
+    const idx = allSocietes.findIndex(s => String(s.id) === String(id));
+    if (idx > -1) allSocietes[idx] = soc;
+    if (window._fbReady && currentProfile?.id && soc._docId) {
+      try { await window._fbSetDoc(window._fbDoc(window._db, 'profiles', currentProfile.id, 'societes', soc._docId), soc, { merge: true }); } catch(e) {}
+    }
+  } else {
+    allSocietes.push(soc);
+    if (window._fbReady && currentProfile?.id) {
+      try { const ref = await window._fbAddDoc(window._fbCollection(window._db, 'profiles', currentProfile.id, 'societes'), soc); soc._docId = ref.id; } catch(e) {}
+    }
+  }
+  document.getElementById('societeModal').style.display = 'none';
+  toast(`✓ Société "${nom}" enregistrée`, 'success');
+  renderSocietes();
+}
+
+async function switchSociete(id) {
+  const soc = allSocietes.find(s => String(s.id) === String(id));
+  if (!soc) return;
+  currentSociete = soc;
+  // Mettre à jour le badge société dans la topbar
+  const badge = document.getElementById('societeBadge');
+  if (badge) badge.textContent = soc.nom;
+  const exBadge = document.getElementById('exerciceBadge');
+  if (exBadge) exBadge.textContent = soc.exerciceActif || new Date().getFullYear();
+  const exInput = document.getElementById('exerciceYear');
+  if (exInput) exInput.value = soc.exerciceActif || new Date().getFullYear();
+  toast(`✓ Basculé sur : ${soc.nom} — Exercice ${soc.exerciceActif}`, 'success');
+  renderSocietes();
+  updateStats();
+}
+
+async function ajouterExercice(socId) {
+  const soc = allSocietes.find(s => String(s.id) === String(socId));
+  if (!soc) return;
+  const yr = parseInt(prompt('Année du nouvel exercice :', new Date().getFullYear() + 1));
+  if (!yr || isNaN(yr)) return;
+  if (soc.exercices?.includes(yr)) { toast('Exercice déjà existant', 'error'); return; }
+  soc.exercices = [...(soc.exercices || []), yr].sort();
+  soc.exerciceActif = yr;
+  if (window._fbReady && currentProfile?.id && soc._docId) {
+    try { await window._fbSetDoc(window._fbDoc(window._db, 'profiles', currentProfile.id, 'societes', soc._docId), soc, { merge: true }); } catch(e) {}
+  }
+  toast(`✓ Exercice ${yr} ajouté à ${soc.nom}`, 'success');
+  renderSocietes();
+}
+
+function renderSocietes() {
+  const el = document.getElementById('societesContent');
+  if (!el) return;
+
+  document.getElementById('soc-kpi-total').textContent = allSocietes.length;
+  const active = currentSociete;
+  document.getElementById('soc-kpi-active').textContent = active ? active.nom : '—';
+  const totalEx = allSocietes.reduce((s,x) => s + (x.exercices?.length || 1), 0);
+  document.getElementById('soc-kpi-exercices').textContent = totalEx;
+  document.getElementById('soc-kpi-annee').textContent = active?.exerciceActif || new Date().getFullYear();
+
+  if (!allSocietes.length) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">🏢</div><p>Aucune société. Créez la première pour commencer.</p></div>';
+    return;
+  }
+
+  el.innerHTML = `<div class="societes-grid">${allSocietes.map(s => {
+    const isActive = currentSociete && String(currentSociete.id) === String(s.id);
+    return `<div class="soc-card ${isActive ? 'soc-card-active' : ''}">
+      <div class="soc-card-header">
+        <div>
+          <div class="soc-card-nom">${s.nom}</div>
+          <div class="soc-card-forme">${s.forme || 'SARL'} ${s.rccm ? '· RCCM ' + s.rccm : ''}</div>
+        </div>
+        ${isActive ? '<span class="soc-badge-active">● Actif</span>' : ''}
+      </div>
+      <div class="soc-card-detail">
+        ${s.nif ? `<div>NIF : <strong>${s.nif}</strong></div>` : ''}
+        ${s.adresse ? `<div>📍 ${s.adresse}</div>` : ''}
+        <div>Exercices : <strong>${(s.exercices||[s.exerciceActif||new Date().getFullYear()]).join(', ')}</strong></div>
+        <div>Exercice actif : <strong style="color:var(--warm)">${s.exerciceActif || new Date().getFullYear()}</strong></div>
+      </div>
+      <div class="soc-card-actions">
+        ${!isActive ? `<button class="btn btn-gold" onclick="switchSociete('${s.id}')">Basculer →</button>` : ''}
+        <button class="btn btn-sm-wire" onclick="ajouterExercice('${s.id}')">+ Exercice</button>
+        <button class="btn btn-sm-wire" onclick="openSocieteModal('${s.id}')">✎ Modifier</button>
+      </div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+window.openSocieteModal = openSocieteModal;
+window.saveSociete = saveSociete;
+window.switchSociete = switchSociete;
+window.ajouterExercice = ajouterExercice;
+window.renderSocietes = renderSocietes;
+
+// ══════════════════════════════════════════════════════════════════
+// ██  MODULE 3 — DROITS UTILISATEURS & AUDIT TRAIL
+// ══════════════════════════════════════════════════════════════════
+let collaborateurs = [];   // { id, email, nom, role, invitePar, accepte, createdAt }
+let auditLogs = [];        // { id, action, module, detail, user, ts }
+
+const ROLES = {
+  admin:      { label: 'Administrateur', couleur: 'var(--warm)', perms: ['*'] },
+  comptable:  { label: 'Comptable',       couleur: 'var(--blue)', perms: ['saisie','journal','grandlivre','balance','bilan','resultat','tresorerie','factures','devis','clients','fournisseurs','paie','immobilisations','stocks','rapprochement','budgets','lettrage','declarations','analytique','effets'] },
+  gestionnaire:{ label: 'Gestionnaire',  couleur: 'var(--teal)', perms: ['factures','devis','clients','fournisseurs','stocks','budgets'] },
+  lecteur:    { label: 'Lecture seule',   couleur: 'var(--muted)', perms: ['journal','grandlivre','balance','bilan','resultat','tresorerie'] },
+};
+
+function auditLog(action, module, detail) {
+  const log = {
+    id: Date.now(),
+    action,
+    module,
+    detail,
+    user: currentProfile?.email || currentProfile?.company || 'Inconnu',
+    ts: new Date().toISOString(),
+  };
+  auditLogs.unshift(log);
+  if (auditLogs.length > 500) auditLogs = auditLogs.slice(0, 500);
+  // Sauvegarder en Firestore (best-effort, non bloquant)
+  if (window._fbReady && currentProfile?.id) {
+    window._fbAddDoc(window._fbCollection(window._db, 'profiles', currentProfile.id, 'audit_logs'), log).catch(() => {});
+  }
+}
+
+async function loadCollaborateurs() {
+  if (!window._fbReady || !currentProfile?.id) return;
+  try {
+    const [snapC, snapA] = await Promise.all([
+      window._fbGetDocs(window._fbCollection(window._db, 'profiles', currentProfile.id, 'collaborateurs')),
+      window._fbGetDocs(window._fbCollection(window._db, 'profiles', currentProfile.id, 'audit_logs')),
+    ]);
+    collaborateurs = snapC.docs.map(d => ({ ...d.data(), _docId: d.id }));
+    auditLogs = snapA.docs.map(d => ({ ...d.data(), _docId: d.id })).sort((a,b) => new Date(b.ts) - new Date(a.ts));
+  } catch(e) {}
+}
+
+function openCollabModal() {
+  document.getElementById('collab-email').value = '';
+  document.getElementById('collab-nom').value = '';
+  document.getElementById('collab-role').value = 'comptable';
+  document.getElementById('collabModal').style.display = 'flex';
+}
+
+async function saveCollaborateur() {
+  const email = document.getElementById('collab-email').value.trim().toLowerCase();
+  const nom = document.getElementById('collab-nom').value.trim();
+  const role = document.getElementById('collab-role').value;
+  if (!email || !nom) { toast('Email et nom obligatoires', 'error'); return; }
+  if (!email.includes('@')) { toast('Email invalide', 'error'); return; }
+  if (collaborateurs.find(c => c.email === email)) { toast('Ce collaborateur existe déjà', 'error'); return; }
+  const collab = {
+    id: Date.now(),
+    email, nom, role,
+    invitePar: currentProfile?.email || '',
+    accepte: false,
+    createdAt: new Date().toISOString(),
+  };
+  collaborateurs.push(collab);
+  if (window._fbReady && currentProfile?.id) {
+    try { const ref = await window._fbAddDoc(window._fbCollection(window._db, 'profiles', currentProfile.id, 'collaborateurs'), collab); collab._docId = ref.id; } catch(e) {}
+  }
+  auditLog('INVITE', 'utilisateurs', `Invitation envoyée à ${email} (${ROLES[role]?.label || role})`);
+  document.getElementById('collabModal').style.display = 'none';
+  toast(`✓ Invitation envoyée à ${email} avec le rôle ${ROLES[role]?.label}`, 'success');
+  renderUtilisateurs();
+}
+
+async function changerRole(id, newRole) {
+  const collab = collaborateurs.find(c => String(c.id) === String(id));
+  if (!collab) return;
+  const oldRole = collab.role;
+  collab.role = newRole;
+  if (window._fbReady && currentProfile?.id && collab._docId) {
+    try { await window._fbSetDoc(window._fbDoc(window._db, 'profiles', currentProfile.id, 'collaborateurs', collab._docId), { role: newRole }, { merge: true }); } catch(e) {}
+  }
+  auditLog('ROLE_CHANGE', 'utilisateurs', `${collab.nom} : ${ROLES[oldRole]?.label} → ${ROLES[newRole]?.label}`);
+  toast(`✓ Rôle de ${collab.nom} changé en ${ROLES[newRole]?.label}`, 'success');
+  renderUtilisateurs();
+}
+
+async function revoquerCollaborateur(id) {
+  if (!confirm('Révoquer cet accès ?')) return;
+  const collab = collaborateurs.find(c => String(c.id) === String(id));
+  collaborateurs = collaborateurs.filter(c => String(c.id) !== String(id));
+  if (window._fbReady && currentProfile?.id && collab?._docId) {
+    try { await window._fbDeleteDoc(window._fbDoc(window._db, 'profiles', currentProfile.id, 'collaborateurs', collab._docId)); } catch(e) {}
+  }
+  auditLog('REVOKE', 'utilisateurs', `Accès révoqué : ${collab?.email}`);
+  toast('Accès révoqué', 'success');
+  renderUtilisateurs();
+}
+
+function renderUtilisateurs() {
+  const el = document.getElementById('utilisateursContent');
+  if (!el) return;
+
+  document.getElementById('users-kpi-total').textContent = collaborateurs.length + 1;
+  document.getElementById('users-kpi-actifs').textContent = collaborateurs.filter(c => c.accepte).length + 1;
+  document.getElementById('users-kpi-invites').textContent = collaborateurs.filter(c => !c.accepte).length;
+  document.getElementById('users-kpi-logs').textContent = auditLogs.length;
+
+  // Table collaborateurs
+  const collabHtml = `<div class="card" style="margin-bottom:16px">
+    <div class="card-header"><div><div class="card-title">👥 Équipe & Accès</div></div>
+      <button class="btn btn-ink" onclick="openCollabModal()">+ Inviter un collaborateur</button>
+    </div>
+    <div class="dtw"><table class="dt"><thead><tr><th>Nom</th><th>Email</th><th>Rôle</th><th>Statut</th><th>Depuis</th><th></th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>${currentProfile?.company || 'Administrateur'}</strong></td>
+        <td style="color:var(--muted);font-size:12px">${currentProfile?.email || '—'}</td>
+        <td><span class="role-badge" style="background:rgba(212,168,83,.15);color:var(--warm)">Administrateur</span></td>
+        <td><span style="color:var(--green);font-size:12px">● Actif</span></td>
+        <td style="font-size:11px;color:var(--muted)">Propriétaire</td>
+        <td></td>
+      </tr>
+      ${collaborateurs.map(c => {
+        const r = ROLES[c.role] || ROLES.lecteur;
+        return `<tr>
+          <td><strong>${c.nom}</strong></td>
+          <td style="color:var(--muted);font-size:12px">${c.email}</td>
+          <td>
+            <select class="role-select" onchange="changerRole(${c.id}, this.value)">
+              ${Object.entries(ROLES).map(([k,v]) => `<option value="${k}" ${c.role===k?'selected':''}>${v.label}</option>`).join('')}
+            </select>
+          </td>
+          <td><span style="color:${c.accepte ? 'var(--green)' : 'var(--muted)'};font-size:12px">${c.accepte ? '● Actif' : '⏳ En attente'}</span></td>
+          <td style="font-size:11px;color:var(--muted)">${new Date(c.createdAt).toLocaleDateString('fr-FR')}</td>
+          <td><button class="btn btn-sm-wire" onclick="revoquerCollaborateur(${c.id})" style="color:var(--rust)">✕ Révoquer</button></td>
+        </tr>`;
+      }).join('')}
+    </tbody></table></div>
+  </div>`;
+
+  // Journal d'audit
+  const logsHtml = `<div class="card">
+    <div class="card-header"><div><div class="card-title">📋 Journal d'audit</div><div class="card-sub">Historique des actions — 500 dernières entrées</div></div>
+      <button class="btn btn-sm-wire" onclick="exportAuditPDF()">↓ Export PDF</button>
+    </div>
+    ${auditLogs.length ? `<div class="dtw"><table class="dt"><thead><tr><th>Date/heure</th><th>Action</th><th>Module</th><th>Détail</th><th>Utilisateur</th></tr></thead>
+    <tbody>${auditLogs.slice(0,100).map(l => {
+      const actionColors = { 'SAVE':'var(--green)','DELETE':'var(--rust)','EXPORT':'var(--blue)','INVITE':'var(--teal)','REVOKE':'var(--rust)','ROLE_CHANGE':'var(--warm)','LOGIN':'var(--muted)','LOGOUT':'var(--muted)' };
+      return `<tr>
+        <td style="font-family:var(--font-mono);font-size:11px">${new Date(l.ts).toLocaleString('fr-FR')}</td>
+        <td><span style="color:${actionColors[l.action]||'var(--ink)'};font-weight:600;font-size:12px">${l.action}</span></td>
+        <td style="font-size:12px;color:var(--muted)">${l.module}</td>
+        <td style="font-size:12px">${l.detail}</td>
+        <td style="font-size:11px;color:var(--muted)">${l.user}</td>
+      </tr>`;
+    }).join('')}</tbody></table></div>` : '<div class="empty-state" style="padding:20px"><div class="icon">📋</div><p>Aucun log d\'audit pour le moment.</p></div>'}
+  </div>`;
+
+  el.innerHTML = collabHtml + logsHtml;
+}
+
+function exportAuditPDF() {
+  const { jsPDF } = window.jspdf;
+  if (!jsPDF) { toast('jsPDF non disponible', 'error'); return; }
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const company = currentProfile?.company || 'Entreprise';
+  doc.setFillColor(10,11,16); doc.rect(0,0,297,22,'F');
+  doc.setTextColor(212,168,83); doc.setFontSize(12); doc.setFont('helvetica','bold');
+  doc.text(`JOURNAL D'AUDIT — ${company} — Exporté le ${new Date().toLocaleDateString('fr-FR')}`, 14, 14);
+  doc.autoTable({
+    startY: 26,
+    head: [['Date/heure','Action','Module','Détail','Utilisateur']],
+    body: auditLogs.slice(0,200).map(l => [new Date(l.ts).toLocaleString('fr-FR'), l.action, l.module, l.detail, l.user]),
+    styles: { font:'helvetica', fontSize:7.5 },
+    headStyles: { fillColor:[10,11,16], textColor:[212,168,83] },
+    margin: { left:14, right:14 },
+  });
+  doc.save(`AUDIT_${company.replace(/\s+/g,'_')}.pdf`);
+  toast('✓ Journal d\'audit exporté', 'success');
+}
+
+window.openCollabModal = openCollabModal;
+window.saveCollaborateur = saveCollaborateur;
+window.changerRole = changerRole;
+window.revoquerCollaborateur = revoquerCollaborateur;
+window.renderUtilisateurs = renderUtilisateurs;
+window.exportAuditPDF = exportAuditPDF;
+
+// ══════════════════════════════════════════════════════════════════
+// ██  MODULE 4 — EFFETS DE COMMERCE (LCR / Billet à ordre / Escompte)
+// ══════════════════════════════════════════════════════════════════
+let effets = [];  // { id, type, tiré/souscripteur, montant, dateCreation, dateEcheance, statut, banque, ecritureId }
+
+const STATUTS_EFFET = {
+  en_portefeuille: { label: 'En portefeuille', couleur: 'var(--blue)' },
+  remis_escompte:  { label: 'Remis à l\'escompte', couleur: 'var(--warm)' },
+  encaisse:        { label: 'Encaissé', couleur: 'var(--green)' },
+  impaye:          { label: 'Impayé', couleur: 'var(--rust)' },
+  endosse:         { label: 'Endossé', couleur: 'var(--teal)' },
+};
+
+async function loadEffets() {
+  if (!window._fbReady || !currentProfile?.id) return;
+  try {
+    const snap = await window._fbGetDocs(window._fbCollection(window._db, 'profiles', currentProfile.id, 'effets'));
+    effets = snap.docs.map(d => ({ ...d.data(), _docId: d.id }));
+  } catch(e) {}
+}
+
+function openEffetModal(id = null) {
+  const e = id ? effets.find(x => x.id === id) : null;
+  document.getElementById('effet-id').value = e ? e.id : '';
+  document.getElementById('effet-type').value = e ? e.type : 'lcr';
+  document.getElementById('effet-tire').value = e ? (e.tire || '') : '';
+  document.getElementById('effet-montant').value = e ? e.montant : '';
+  document.getElementById('effet-date-creation').value = e ? e.dateCreation : new Date().toISOString().split('T')[0];
+  document.getElementById('effet-date-echeance').value = e ? e.dateEcheance : '';
+  document.getElementById('effet-banque').value = e ? (e.banque || '') : '';
+  document.getElementById('effet-statut').value = e ? e.statut : 'en_portefeuille';
+  document.getElementById('effet-ref').value = e ? (e.ref || '') : '';
+  document.getElementById('effetModal').style.display = 'flex';
+}
+
+async function saveEffet() {
+  const id = document.getElementById('effet-id').value;
+  const type = document.getElementById('effet-type').value;
+  const tire = document.getElementById('effet-tire').value.trim();
+  const montant = parseFloat(document.getElementById('effet-montant').value) || 0;
+  const dateCreation = document.getElementById('effet-date-creation').value;
+  const dateEcheance = document.getElementById('effet-date-echeance').value;
+  const banque = document.getElementById('effet-banque').value.trim();
+  const statut = document.getElementById('effet-statut').value;
+  const ref = document.getElementById('effet-ref').value.trim();
+  if (!tire || !montant || !dateEcheance) { toast('Tiré/souscripteur, montant et échéance obligatoires', 'error'); return; }
+
+  const effet = { id: id ? parseInt(id) : Date.now(), type, tire, montant, dateCreation, dateEcheance, banque, statut, ref, createdAt: new Date().toISOString() };
+
+  if (id) {
+    const existing = effets.find(e => String(e.id) === String(id));
+    if (existing) effet._docId = existing._docId;
+    const idx = effets.findIndex(e => String(e.id) === String(id));
+    if (idx > -1) effets[idx] = effet;
+    if (window._fbReady && currentProfile?.id && effet._docId) {
+      try { await window._fbSetDoc(window._fbDoc(window._db, 'profiles', currentProfile.id, 'effets', effet._docId), effet, { merge: true }); } catch(e) {}
+    }
+  } else {
+    effets.push(effet);
+    if (window._fbReady && currentProfile?.id) {
+      try { const r = await window._fbAddDoc(window._fbCollection(window._db, 'profiles', currentProfile.id, 'effets'), effet); effet._docId = r.id; } catch(e) {}
+    }
+    // Générer l'écriture comptable automatiquement
+    await genererEcritureEffet(effet);
+  }
+
+  auditLog('SAVE', 'effets', `${type.toUpperCase()} ${fn(montant)} FCFA — ${tire} — Éch. ${dateEcheance}`);
+  document.getElementById('effetModal').style.display = 'none';
+  toast(`✓ Effet enregistré — ${fn(montant)} FCFA — Échéance : ${dateEcheance}`, 'success');
+  renderEffets();
+}
+
+async function genererEcritureEffet(effet) {
+  // LCR reçue (effet client) → 413 / 411
+  // Billet à ordre émis (effet fournisseur) → 401 / 403
+  let lignes;
+  if (effet.type === 'lcr' || effet.type === 'billet_recu') {
+    lignes = [
+      { compte: '413', libelle: `Effet à recevoir — ${effet.tire}`, debit: effet.montant, credit: 0 },
+      { compte: '411', libelle: `Créance client — ${effet.tire}`, debit: 0, credit: effet.montant },
+    ];
+  } else {
+    lignes = [
+      { compte: '401', libelle: `Dette fournisseur — ${effet.tire}`, debit: effet.montant, credit: 0 },
+      { compte: '403', libelle: `Effet à payer — ${effet.tire}`, debit: 0, credit: effet.montant },
+    ];
+  }
+  const ecr = {
+    id: Date.now(), date: effet.dateCreation, journal: 'OD',
+    piece: 'EFF-' + String(effet.id).slice(-6),
+    libelle: `${effet.type.toUpperCase()} — ${effet.tire} — Éch. ${effet.dateEcheance}`,
+    createdAt: new Date().toISOString(), lignes,
+  };
+  await saveEcritureToFirestore(ecr);
+  ecritures.push(ecr);
+  updateStats();
+}
+
+async function changerStatutEffet(id, newStatut) {
+  const effet = effets.find(e => e.id === id);
+  if (!effet) return;
+  const oldStatut = effet.statut;
+  effet.statut = newStatut;
+  if (window._fbReady && currentProfile?.id && effet._docId) {
+    try { await window._fbSetDoc(window._fbDoc(window._db, 'profiles', currentProfile.id, 'effets', effet._docId), { statut: newStatut }, { merge: true }); } catch(e) {}
+  }
+  // Écriture de remise à l'escompte
+  if (newStatut === 'remis_escompte') {
+    const ecr = {
+      id: Date.now(), date: new Date().toISOString().split('T')[0], journal: 'BQ',
+      piece: 'ESC-' + String(effet.id).slice(-6),
+      libelle: `Remise à l'escompte — ${effet.tire}`,
+      createdAt: new Date().toISOString(),
+      lignes: [
+        { compte: '521', libelle: 'Banque — escompte', debit: effet.montant, credit: 0 },
+        { compte: '413', libelle: `Effet escompté — ${effet.tire}`, debit: 0, credit: effet.montant },
+      ],
+    };
+    await saveEcritureToFirestore(ecr);
+    ecritures.push(ecr);
+    updateStats();
+    toast(`✓ Effet remis à l'escompte — Écriture 521/${413} générée`, 'success');
+  } else if (newStatut === 'encaisse') {
+    const ecr = {
+      id: Date.now(), date: new Date().toISOString().split('T')[0], journal: 'BQ',
+      piece: 'ENC-' + String(effet.id).slice(-6),
+      libelle: `Encaissement effet — ${effet.tire}`,
+      createdAt: new Date().toISOString(),
+      lignes: [
+        { compte: '521', libelle: 'Banque — encaissement', debit: effet.montant, credit: 0 },
+        { compte: '413', libelle: `Effet encaissé — ${effet.tire}`, debit: 0, credit: effet.montant },
+      ],
+    };
+    await saveEcritureToFirestore(ecr);
+    ecritures.push(ecr);
+    updateStats();
+    toast(`✓ Effet encaissé — Écriture 521/413 générée`, 'success');
+  } else if (newStatut === 'impaye') {
+    const ecr = {
+      id: Date.now(), date: new Date().toISOString().split('T')[0], journal: 'OD',
+      piece: 'IMP-' + String(effet.id).slice(-6),
+      libelle: `Impayé — ${effet.tire}`,
+      createdAt: new Date().toISOString(),
+      lignes: [
+        { compte: '416', libelle: `Clients douteux — ${effet.tire}`, debit: effet.montant, credit: 0 },
+        { compte: '413', libelle: `Effet impayé — ${effet.tire}`, debit: 0, credit: effet.montant },
+      ],
+    };
+    await saveEcritureToFirestore(ecr);
+    ecritures.push(ecr);
+    updateStats();
+    toast(`⚠ Effet impayé — Écriture 416/413 générée`, 'error');
+  }
+  auditLog('SAVE', 'effets', `Statut modifié : ${STATUTS_EFFET[oldStatut]?.label} → ${STATUTS_EFFET[newStatut]?.label} (${fn(effet.montant)} FCFA)`);
+  renderEffets();
+}
+
+async function deleteEffet(id) {
+  if (!confirm('Supprimer cet effet ?')) return;
+  const effet = effets.find(e => e.id === id);
+  effets = effets.filter(e => e.id !== id);
+  if (window._fbReady && currentProfile?.id && effet?._docId) {
+    try { await window._fbDeleteDoc(window._fbDoc(window._db, 'profiles', currentProfile.id, 'effets', effet._docId)); } catch(e) {}
+  }
+  toast('Effet supprimé', 'success');
+  renderEffets();
+}
+
+function renderEffets() {
+  const el = document.getElementById('effetsContent');
+  if (!el) return;
+
+  const today = new Date();
+  const totalPortefeuille = effets.filter(e => e.statut === 'en_portefeuille').reduce((s,e) => s + e.montant, 0);
+  const totalEscompte = effets.filter(e => e.statut === 'remis_escompte').reduce((s,e) => s + e.montant, 0);
+  const totalImpayes = effets.filter(e => e.statut === 'impaye').reduce((s,e) => s + e.montant, 0);
+  const aEcheoir7j = effets.filter(e => {
+    const ech = new Date(e.dateEcheance);
+    const diff = (ech - today) / 86400000;
+    return diff >= 0 && diff <= 7 && e.statut === 'en_portefeuille';
+  }).length;
+
+  document.getElementById('effets-kpi-portefeuille').textContent = fn(totalPortefeuille);
+  document.getElementById('effets-kpi-escompte').textContent = fn(totalEscompte);
+  document.getElementById('effets-kpi-impayes').textContent = fn(totalImpayes);
+  document.getElementById('effets-kpi-echeoir').textContent = aEcheoir7j;
+
+  if (!effets.length) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">📄</div><p>Aucun effet de commerce. Créez une LCR ou un billet à ordre.</p></div>';
+    return;
+  }
+
+  const sorted = [...effets].sort((a,b) => new Date(a.dateEcheance) - new Date(b.dateEcheance));
+  const rows = sorted.map(e => {
+    const st = STATUTS_EFFET[e.statut] || { label: e.statut, couleur: 'var(--muted)' };
+    const ech = new Date(e.dateEcheance);
+    const daysToEch = Math.round((ech - today) / 86400000);
+    const isUrgent = daysToEch >= 0 && daysToEch <= 7;
+    const typeLabels = { lcr:'LCR', billet_recu:'Billet reçu', billet_emis:'Billet émis' };
+    return `<tr ${isUrgent && e.statut === 'en_portefeuille' ? 'style="background:rgba(245,158,11,.07)"' : ''}>
+      <td><span style="font-family:var(--font-mono);font-size:11px;color:var(--muted)">${e.ref || 'EFF-' + String(e.id).slice(-4)}</span></td>
+      <td><strong>${typeLabels[e.type] || e.type}</strong></td>
+      <td>${e.tire}</td>
+      <td style="text-align:right;font-family:var(--font-mono);font-weight:700">${fn(e.montant)}</td>
+      <td style="font-family:var(--font-mono);font-size:12px">${e.dateCreation}</td>
+      <td style="font-family:var(--font-mono);font-size:12px;${isUrgent && e.statut==='en_portefeuille'?'color:var(--warm);font-weight:600':''}">${e.dateEcheance}${isUrgent && e.statut==='en_portefeuille'?' ⚡':''}${daysToEch < 0 && e.statut==='en_portefeuille'?' ⚠':''}  </td>
+      <td><span style="color:${st.couleur};font-size:12px;font-weight:600">● ${st.label}</span></td>
+      <td style="font-size:12px;color:var(--muted)">${e.banque || '—'}</td>
+      <td>
+        <select class="effet-statut-sel" onchange="changerStatutEffet(${e.id}, this.value)" title="Changer le statut">
+          ${Object.entries(STATUTS_EFFET).map(([k,v]) => `<option value="${k}" ${e.statut===k?'selected':''}>${v.label}</option>`).join('')}
+        </select>
+        <button class="btn btn-sm-wire" onclick="openEffetModal(${e.id})" title="Modifier">✎</button>
+        <button class="btn btn-sm-wire" onclick="deleteEffet(${e.id})" style="color:var(--rust)" title="Supprimer">✕</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `<div class="dtw"><table class="dt effets-table">
+    <thead><tr>
+      <th>Référence</th><th>Type</th><th>Tiré / Souscripteur</th>
+      <th style="text-align:right">Montant</th><th>Création</th><th>Échéance</th>
+      <th>Statut</th><th>Banque</th><th>Actions</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+    <tfoot><tr>
+      <td colspan="3" style="font-weight:700">TOTAL ${effets.length} effet(s)</td>
+      <td style="text-align:right;font-weight:700;font-family:var(--font-mono)">${fn(effets.reduce((s,e)=>s+e.montant,0))}</td>
+      <td colspan="5"></td>
+    </tr></tfoot>
+  </table></div>`;
+}
+
+function exportEffetsPDF() {
+  if (!effets.length) { toast('Aucun effet', 'error'); return; }
+  const { jsPDF } = window.jspdf;
+  if (!jsPDF) { toast('jsPDF non disponible', 'error'); return; }
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const company = currentProfile?.company || 'Entreprise';
+  doc.setFillColor(10,11,16); doc.rect(0,0,297,22,'F');
+  doc.setTextColor(212,168,83); doc.setFontSize(12); doc.setFont('helvetica','bold');
+  doc.text(`PORTEFEUILLE EFFETS DE COMMERCE — ${company} — ${new Date().toLocaleDateString('fr-FR')}`, 14, 14);
+  const typeLabels = { lcr:'LCR', billet_recu:'Billet reçu', billet_emis:'Billet émis' };
+  doc.autoTable({
+    startY: 26,
+    head: [['Réf.','Type','Tiré / Souscripteur','Montant (FCFA)','Création','Échéance','Statut','Banque']],
+    body: effets.map(e => [
+      e.ref || 'EFF-' + String(e.id).slice(-4),
+      typeLabels[e.type] || e.type,
+      e.tire,
+      fn(e.montant),
+      e.dateCreation,
+      e.dateEcheance,
+      STATUTS_EFFET[e.statut]?.label || e.statut,
+      e.banque || '—',
+    ]),
+    foot: [['TOTAL','','',fn(effets.reduce((s,e)=>s+e.montant,0)),'','','','']],
+    styles: { font:'helvetica', fontSize:8 },
+    headStyles: { fillColor:[10,11,16], textColor:[212,168,83] },
+    footStyles: { fillColor:[30,34,54], textColor:[212,168,83], fontStyle:'bold' },
+    columnStyles: { 3:{ halign:'right' } },
+    margin: { left:14, right:14 },
+  });
+  doc.save(`EFFETS_${company.replace(/\s+/g,'_')}.pdf`);
+  toast('✓ Portefeuille effets exporté en PDF', 'success');
+}
+
+window.openEffetModal = openEffetModal;
+window.saveEffet = saveEffet;
+window.changerStatutEffet = changerStatutEffet;
+window.deleteEffet = deleteEffet;
+window.renderEffets = renderEffets;
+window.exportEffetsPDF = exportEffetsPDF;
