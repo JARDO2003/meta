@@ -8009,115 +8009,117 @@ function calcIR(netImposable) {
 // ══════════════════════════════════════════
 
 
-// Barème IR progressif Côte d'Ivoire (DGI 2024)
-function calcIR(revenuImposable) {
+// ══════════════════════════════════════════
+// MODULE PAIE v2 — Barème IR DGI 2024 complet
+// ══════════════════════════════════════════
+let salaries = [];
+
+// Barème IR progressif Côte d'Ivoire — DGI 2024 (annuel → mensuel)
+function calcIR(brutMensuel) {
+  const annuel = brutMensuel * 12;
   const tranches = [
-    { min: 0,        max: 600000,   taux: 0 },
-    { min: 600000,   max: 1800000,  taux: 0.10 },
-    { min: 1800000,  max: 3000000,  taux: 0.15 },
-    { min: 3000000,  max: 6000000,  taux: 0.20 },
-    { min: 6000000,  max: 12000000, taux: 0.25 },
-    { min: 12000000, max: Infinity, taux: 0.30 },
+    { max: 600000,   taux: 0 },
+    { max: 1800000,  taux: 0.10 },
+    { max: 3000000,  taux: 0.15 },
+    { max: 6000000,  taux: 0.20 },
+    { max: 12000000, taux: 0.25 },
+    { max: Infinity, taux: 0.30 },
   ];
-  let ir = 0;
+  let ir = 0, prev = 0;
   for (const t of tranches) {
-    if (revenuImposable <= t.min) break;
-    const base = Math.min(revenuImposable, t.max) - t.min;
-    ir += base * t.taux;
+    if (annuel <= prev) break;
+    ir += (Math.min(annuel, t.max) - prev) * t.taux;
+    prev = t.max;
   }
-  return Math.round(ir / 12); // mensuel
+  return Math.round(ir / 12);
 }
 
 function calcPaie() {
-  const brut = parseFloat(document.getElementById('paie-brut').value) || 0;
+  const brut = parseFloat(document.getElementById('paie-brut')?.value) || 0;
   if (!brut) return;
-  // CNPS salarié : 7,7% plafonné à 1 647 315 FCFA/an (137 276/mois)
-  const plafondCnpsMensuel = 137276;
-  const cnpsSal = Math.min(Math.round(brut * 0.077), plafondCnpsMensuel);
-  // Charges patronales : 16% AT + 0,4% TPA + 1,5% CN
-  const chargesPatronales = Math.round(brut * 0.179);
-  // IR sur revenu imposable = brut - cnpsSal - abattement 20%
-  const revenuBrut = brut - cnpsSal;
-  const abattement = Math.round(revenuBrut * 0.20);
-  const revenuImposable = Math.round((revenuBrut - abattement) * 12); // annualisé pour le barème
-  const ir = calcIR(revenuImposable);
-  const net = brut - cnpsSal - ir;
-  document.getElementById('paie-cnps-sal').textContent = fn(cnpsSal);
-  document.getElementById('paie-charges-pat').textContent = fn(chargesPatronales);
-  document.getElementById('paie-ir').textContent = fn(ir);
-  document.getElementById('paie-net').textContent = fn(net);
-  document.getElementById('paie-cout-total').textContent = fn(brut + chargesPatronales);
+  const plafondMensuel = 137276;
+  const cnpsSal = Math.round(Math.min(brut * 0.077, plafondMensuel));
+  const cnpsPat = Math.round(brut * 0.16);
+  const tpa     = Math.round(brut * 0.004);
+  const cn      = Math.round(brut * 0.015);
+  const taxeApp = Math.round(brut * 0.004);
+  const chargesPatronales = cnpsPat + tpa + cn + taxeApp;
+  const baseIR  = brut - cnpsSal - Math.round((brut - cnpsSal) * 0.20);
+  const ir      = calcIR(baseIR);
+  const netAPayer = brut - cnpsSal - ir;
+
+  const res  = document.getElementById('paie-calcul-result');
+  const grid = document.getElementById('paie-detail-grid');
+  if (!res || !grid) return { brut, cnpsSal, ir, netAPayer, cnpsPat, tpa, cn, taxeApp, chargesPatronales };
+  res.style.display = 'block';
+  grid.innerHTML = `
+    <div class="bulletin-row"><span class="lbl">Salaire brut</span><span class="val">${fn(brut)} FCFA</span></div>
+    <div class="bulletin-row deduction"><span class="lbl">CNPS salarial (7,7% plafonné)</span><span class="val">- ${fn(cnpsSal)} FCFA</span></div>
+    <div class="bulletin-row deduction"><span class="lbl">Abattement forfaitaire (20%)</span><span class="val">- ${fn(Math.round((brut-cnpsSal)*0.20))} FCFA</span></div>
+    <div class="bulletin-row deduction"><span class="lbl">Impôt sur le Revenu (IR DGI)</span><span class="val">- ${fn(ir)} FCFA</span></div>
+    <div class="bulletin-row total"><span class="lbl">NET À PAYER</span><span class="val">${fn(netAPayer)} FCFA</span></div>
+    <div style="margin-top:12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Charges patronales (employeur)</div>
+    <div class="bulletin-row deduction"><span class="lbl">CNPS patronal (16%)</span><span class="val">${fn(cnpsPat)} FCFA</span></div>
+    <div class="bulletin-row deduction"><span class="lbl">TPA (0,4%)</span><span class="val">${fn(tpa)} FCFA</span></div>
+    <div class="bulletin-row deduction"><span class="lbl">Contribution nationale (1,5%)</span><span class="val">${fn(cn)} FCFA</span></div>
+    <div class="bulletin-row deduction"><span class="lbl">Taxe apprentissage (0,4%)</span><span class="val">${fn(taxeApp)} FCFA</span></div>
+    <div class="bulletin-row total" style="border-top:1px solid var(--line);padding-top:6px">
+      <span class="lbl">Coût total employeur</span>
+      <span class="val" style="color:var(--rust)">${fn(brut + chargesPatronales)} FCFA</span>
+    </div>`;
+  return { brut, cnpsSal, ir, netAPayer, cnpsPat, tpa, cn, taxeApp, chargesPatronales };
 }
 
-function openPaieModal(id = null) {
+function openPaieModal() {
   document.getElementById('paieModal').style.display = 'flex';
-  if (!id) {
-    ['paie-nom','paie-poste','paie-mois','paie-brut'].forEach(i => {
-      const el = document.getElementById(i);
-      if (el) el.value = i === 'paie-mois' ? new Date().toISOString().slice(0,7) : '';
-    });
-    ['paie-cnps-sal','paie-charges-pat','paie-ir','paie-net','paie-cout-total'].forEach(i => {
-      const el = document.getElementById(i);
-      if (el) el.textContent = '—';
-    });
-  }
 }
 
 async function savePaie() {
-  const nom = document.getElementById('paie-nom').value.trim();
+  const nom   = document.getElementById('paie-nom').value.trim();
   const poste = document.getElementById('paie-poste').value.trim();
-  const mois = document.getElementById('paie-mois').value;
-  const brut = parseFloat(document.getElementById('paie-brut').value) || 0;
-  if (!nom || !brut || !mois) { toast('Remplissez tous les champs', 'error'); return; }
-
-  const plafondCnpsMensuel = 137276;
-  const cnpsSal = Math.min(Math.round(brut * 0.077), plafondCnpsMensuel);
-  const chargesPatronales = Math.round(brut * 0.179);
-  const revenuBrut = brut - cnpsSal;
-  const abattement = Math.round(revenuBrut * 0.20);
-  const revenuImposable = Math.round((revenuBrut - abattement) * 12);
-  const ir = calcIR(revenuImposable);
-  const netAPayer = brut - cnpsSal - ir;
-
-  const sal = { id: Date.now(), nom, poste, mois, brut, cnpsSal, chargesPatronales, ir, netAPayer, createdAt: new Date().toISOString() };
+  const brut  = parseFloat(document.getElementById('paie-brut').value) || 0;
+  const mois  = document.getElementById('paie-mois').value;
+  if (!nom || !brut || !mois) { toast('Remplissez tous les champs obligatoires', 'error'); return; }
+  const calc = calcPaie();
+  if (!calc) return;
+  const sal = { id: Date.now(), nom, poste, brut, mois, ...calc, createdAt: new Date().toISOString() };
   salaries.push(sal);
 
-  // Écriture OD paie
   const dateEcr = mois + '-28';
-  const ecr = {
-    id: Date.now() + 1, date: dateEcr, journal: 'OD',
-    piece: 'PAIE-' + mois.replace('-',''),
-    libelle: `Paie ${nom} — ${mois}`,
-    createdAt: new Date().toISOString(),
-    lignes: sortLignesDebitAvantCredit([
-      { compte: '661', libelle: `Salaire brut ${nom}`, debit: brut, credit: 0 },
-      { compte: '422', libelle: `Salaires dus — ${nom}`, debit: 0, credit: netAPayer },
-      { compte: '431', libelle: 'CNPS salarié à payer', debit: 0, credit: cnpsSal },
-      { compte: '447', libelle: 'IR retenu à la source', debit: 0, credit: ir },
-    ])
-  };
-  await saveEcritureToFirestore(ecr);
-  ecritures.push(ecr);
+  const piece   = 'PAY-' + mois.replace('-', '');
 
-  // Écriture charges patronales
-  const ecrPat = {
-    id: Date.now() + 2, date: dateEcr, journal: 'OD',
-    piece: 'PAIE-PAT-' + mois.replace('-',''),
-    libelle: `Charges patronales ${nom} — ${mois}`,
-    createdAt: new Date().toISOString(),
+  // Écriture 1 — Constatation salaire
+  const ecr1 = {
+    id: Date.now(), date: dateEcr, journal: 'OD', piece,
+    libelle: `Salaire ${nom} — ${mois}`, createdAt: new Date().toISOString(),
     lignes: sortLignesDebitAvantCredit([
-      { compte: '664', libelle: `Charges patronales ${nom}`, debit: chargesPatronales, credit: 0 },
-      { compte: '431', libelle: 'CNPS patronal à payer', debit: 0, credit: chargesPatronales },
+      { compte: '661', libelle: `Rémunérations directes — ${nom}`, debit: sal.brut,       credit: 0 },
+      { compte: '422', libelle: `Personnel, net à payer — ${nom}`,  debit: 0, credit: sal.netAPayer },
+      { compte: '431', libelle: 'CNPS salarial 7,7%',               debit: 0, credit: sal.cnpsSal  },
+      { compte: '447', libelle: 'IR retenu à la source',             debit: 0, credit: sal.ir       },
     ])
   };
-  await saveEcritureToFirestore(ecrPat);
-  ecritures.push(ecrPat);
+  await saveEcritureToFirestore(ecr1);
+  ecritures.push(ecr1);
+
+  // Écriture 2 — Charges patronales
+  const ecr2 = {
+    id: Date.now() + 1, date: dateEcr, journal: 'OD',
+    piece: 'PAY-PAT-' + mois.replace('-', ''),
+    libelle: `Charges patronales ${nom} — ${mois}`, createdAt: new Date().toISOString(),
+    lignes: sortLignesDebitAvantCredit([
+      { compte: '664', libelle: `Charges sociales patronales — ${nom}`, debit: sal.chargesPatronales, credit: 0 },
+      { compte: '431', libelle: 'CNPS patronal + TPA + CN',             debit: 0, credit: sal.chargesPatronales },
+    ])
+  };
+  await saveEcritureToFirestore(ecr2);
+  ecritures.push(ecr2);
 
   if (window._fbReady && currentProfile?.id) {
     try { await window._fbAddDoc(window._fbCollection(window._db, 'profiles', currentProfile.id, 'salaries'), sal); } catch(e) {}
   }
   document.getElementById('paieModal').style.display = 'none';
-  toast(`✓ Paie ${nom} : Net ${fn(netAPayer)} FCFA — 2 écritures OD générées`, 'success');
+  toast(`✓ Paie ${nom} — Net ${fn(sal.netAPayer)} FCFA — 2 écritures OD générées`, 'success');
   renderPaie();
   updateStats();
 }
@@ -8137,30 +8139,33 @@ function renderPaie() {
     el.innerHTML = '<div class="empty-state"><div class="icon">👤</div><p>Aucun salarié. Cliquez sur "+ Nouveau salarié".</p></div>';
     return;
   }
-  const totalBrut = salaries.reduce((s,x) => s + (x.brut || 0), 0);
-  const totalNet = salaries.reduce((s,x) => s + (x.netAPayer || 0), 0);
-  const totalCnpsSal = salaries.reduce((s,x) => s + (x.cnpsSal || 0), 0);
+  const totalBrut    = salaries.reduce((s,x) => s + (x.brut           || 0), 0);
+  const totalNet     = salaries.reduce((s,x) => s + (x.netAPayer      || 0), 0);
+  const totalCnpsSal = salaries.reduce((s,x) => s + (x.cnpsSal        || 0), 0);
   const totalCnpsPat = salaries.reduce((s,x) => s + (x.chargesPatronales || 0), 0);
-  const totalIr = salaries.reduce((s,x) => s + (x.ir || 0), 0);
-  document.getElementById('paie-kpi-masse').textContent = fn(totalBrut);
-  document.getElementById('paie-kpi-net').textContent = fn(totalNet);
+  const totalIr      = salaries.reduce((s,x) => s + (x.ir             || 0), 0);
+  document.getElementById('paie-kpi-masse').textContent    = fn(totalBrut);
+  document.getElementById('paie-kpi-net').textContent      = fn(totalNet);
   document.getElementById('paie-kpi-cnps-sal').textContent = fn(totalCnpsSal);
   document.getElementById('paie-kpi-cnps-pat').textContent = fn(totalCnpsPat);
-  document.getElementById('paie-kpi-ir').textContent = fn(totalIr);
+  document.getElementById('paie-kpi-ir').textContent       = fn(totalIr);
   el.innerHTML = `<div class="dtw"><table class="dt"><thead><tr>
     <th>Nom</th><th>Poste</th><th>Mois</th>
-    <th style="text-align:right">Brut</th><th style="text-align:right">CNPS sal.</th>
-    <th style="text-align:right">IR</th><th style="text-align:right">Net à payer</th>
-    <th></th></tr></thead><tbody>${
+    <th style="text-align:right">Brut</th>
+    <th style="text-align:right">CNPS sal.</th>
+    <th style="text-align:right">IR</th>
+    <th style="text-align:right">Net à payer</th>
+    <th></th>
+  </tr></thead><tbody>${
     salaries.map(s => `<tr>
       <td><strong>${s.nom}</strong></td>
-      <td style="color:var(--muted)">${s.poste||'-'}</td>
-      <td style="font-family:var(--font-mono)">${s.mois||'-'}</td>
+      <td style="color:var(--muted)">${s.poste||'—'}</td>
+      <td style="font-family:var(--font-mono)">${s.mois||'—'}</td>
       <td style="text-align:right;font-family:var(--font-mono)">${fn(s.brut)}</td>
       <td style="text-align:right;font-family:var(--font-mono);color:var(--rust)">${fn(s.cnpsSal)}</td>
       <td style="text-align:right;font-family:var(--font-mono);color:var(--muted)">${fn(s.ir)}</td>
       <td style="text-align:right;font-family:var(--font-mono);color:var(--green);font-weight:700">${fn(s.netAPayer)}</td>
-      <td><button class="btn btn-sm-wire" onclick="exportBulletinPDF(${s.id})">PDF</button></td>
+      <td><button class="btn btn-sm-wire" onclick="exportBulletinPDF(${s.id})" title="Bulletin PDF">⎙</button></td>
     </tr>`).join('')
   }</tbody></table></div>`;
 }
@@ -8169,72 +8174,67 @@ function exportBulletinPDF(salId) {
   const sal = salaries.find(s => s.id === salId);
   if (!sal) { toast('Salarié introuvable', 'error'); return; }
   const { jsPDF } = window.jspdf;
-  if (!jsPDF) { toast('jsPDF non chargé', 'error'); return; }
+  if (!jsPDF) { toast('jsPDF non disponible', 'error'); return; }
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const company = currentProfile?.company || 'Entreprise';
   const pageW = 210;
+
   // En-tête
-  doc.setFillColor(10, 11, 16);
-  doc.rect(0, 0, pageW, 28, 'F');
-  doc.setTextColor(212, 168, 83);
-  doc.setFontSize(14);
-  doc.setFont('helvetica', 'bold');
+  doc.setFillColor(10,11,16); doc.rect(0,0,pageW,28,'F');
+  doc.setTextColor(212,168,83); doc.setFontSize(14); doc.setFont('helvetica','bold');
   doc.text('BULLETIN DE PAIE', 14, 12);
-  doc.setFontSize(8);
-  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8); doc.setFont('helvetica','normal');
   doc.text(`${company} · SYSCOHADA · COMEO AI v5`, 14, 19);
-  doc.setTextColor(180, 180, 180);
-  doc.text(`Mois : ${sal.mois}`, pageW - 14, 12, { align: 'right' });
-  doc.text(`Généré le ${new Date().toLocaleDateString('fr-FR')}`, pageW - 14, 19, { align: 'right' });
+  doc.setTextColor(180,180,180);
+  doc.text(`Mois : ${sal.mois}  |  Généré le ${new Date().toLocaleDateString('fr-FR')}`, pageW-14, 19, {align:'right'});
+
   // Info salarié
-  doc.setTextColor(10, 11, 16);
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(10,11,16); doc.setFontSize(11); doc.setFont('helvetica','bold');
   doc.text(sal.nom, 14, 40);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
+  doc.setFontSize(9); doc.setFont('helvetica','normal');
   doc.text(`Poste : ${sal.poste || '—'}`, 14, 47);
-  // Tableau
+
   doc.autoTable({
-    startY: 56,
+    startY: 55,
     head: [['Libellé', 'Base', 'Taux', 'Montant (FCFA)']],
     body: [
-      ['Salaire brut', fn(sal.brut) + ' FCFA', '100%', fn(sal.brut)],
-      ['CNPS salarié (retraite)', fn(sal.brut) + ' FCFA', '7,7%', '- ' + fn(sal.cnpsSal)],
-      ['Impôt sur Revenu (IR)', 'Revenu imposable', 'Barème DGI', '- ' + fn(sal.ir)],
-      ['NET À PAYER', '', '', fn(sal.netAPayer)],
+      ['Salaire brut',                          fn(sal.brut)+' FCFA',            '100%',    fn(sal.brut)],
+      ['CNPS salarial (retraite)',               fn(sal.brut)+' FCFA',            '7,7%',   '- '+fn(sal.cnpsSal)],
+      ['Abattement forfaitaire',                 fn(sal.brut-sal.cnpsSal)+' FCFA','20%',    '—'],
+      ['Impôt sur le Revenu (barème DGI 2024)',  'Revenu net imposable',          'Progressif','- '+fn(sal.ir)],
+      ['NET À PAYER',                            '',                              '',        fn(sal.netAPayer)],
     ],
-    styles: { font: 'helvetica', fontSize: 9, cellPadding: 4 },
-    headStyles: { fillColor: [10, 11, 16], textColor: [212, 168, 83], fontStyle: 'bold' },
-    bodyStyles: { textColor: [30, 30, 30] },
-    columnStyles: { 3: { halign: 'right', fontStyle: 'bold' } },
-    margin: { left: 14, right: 14 },
+    styles: { font:'helvetica', fontSize:9, cellPadding:4 },
+    headStyles: { fillColor:[10,11,16], textColor:[212,168,83], fontStyle:'bold' },
+    columnStyles: { 3:{ halign:'right', fontStyle:'bold' } },
+    margin: { left:14, right:14 },
   });
-  let y = doc.lastAutoTable.finalY + 10;
-  // Charges patronales
+
+  let y = doc.lastAutoTable.finalY + 8;
   doc.autoTable({
     startY: y,
-    head: [['Charges patronales (à la charge de l\'employeur)', '', '', '']],
+    head: [["Charges patronales (à la charge de l'employeur)", '', '', '']],
     body: [
-      ['CNPS patronal + TPA + CN', fn(sal.brut) + ' FCFA', '17,9%', fn(sal.chargesPatronales)],
-      ['Coût total employeur', '', '', fn(sal.brut + sal.chargesPatronales)],
+      ['CNPS patronal',          fn(sal.brut)+' FCFA', '16,0%', fn(sal.cnpsPat||0)],
+      ['TPA',                    fn(sal.brut)+' FCFA', '0,4%',  fn(sal.tpa||0)],
+      ['Contribution nationale', fn(sal.brut)+' FCFA', '1,5%',  fn(sal.cn||0)],
+      ['Taxe apprentissage',     fn(sal.brut)+' FCFA', '0,4%',  fn(sal.taxeApp||0)],
+      ['Coût total employeur',   '',                   '',       fn(sal.brut+(sal.chargesPatronales||0))],
     ],
-    styles: { font: 'helvetica', fontSize: 9, cellPadding: 3 },
-    headStyles: { fillColor: [30, 60, 50], textColor: [100, 220, 160], fontStyle: 'bold' },
-    columnStyles: { 3: { halign: 'right' } },
-    margin: { left: 14, right: 14 },
+    styles: { font:'helvetica', fontSize:9, cellPadding:3 },
+    headStyles: { fillColor:[22,80,60], textColor:[100,220,160], fontStyle:'bold' },
+    columnStyles: { 3:{ halign:'right' } },
+    margin: { left:14, right:14 },
   });
-  y = doc.lastAutoTable.finalY + 14;
-  // Signature
-  doc.setDrawColor(200, 192, 176);
-  doc.setLineWidth(0.3);
-  doc.line(14, y, pageW - 14, y);
-  doc.setFontSize(7);
-  doc.setTextColor(150);
-  doc.text('Document généré par COMEO AI v5 · SYSCOHADA · Conforme DGI Côte d\'Ivoire', 14, y + 5);
-  doc.text('Lu et approuvé — Signature employé : _______________', pageW - 14, y + 5, { align: 'right' });
+
+  y = doc.lastAutoTable.finalY + 12;
+  doc.setDrawColor(200,192,176); doc.setLineWidth(0.3); doc.line(14,y,pageW-14,y);
+  doc.setFontSize(7); doc.setTextColor(150);
+  doc.text("Document généré par COMEO AI v5 · SYSCOHADA · Conforme DGI Côte d'Ivoire", 14, y+5);
+  doc.text('Signature employé : _______________', pageW-14, y+5, {align:'right'});
+
   doc.save(`BULLETIN_${sal.nom.replace(/\s+/g,'_')}_${sal.mois}.pdf`);
-  toast(`✓ Bulletin de paie ${sal.nom} exporté`, 'success');
+  toast(`✓ Bulletin ${sal.nom} — ${sal.mois} exporté`, 'success');
 }
 
 window.calcPaie = calcPaie;
@@ -8242,11 +8242,8 @@ window.openPaieModal = openPaieModal;
 window.savePaie = savePaie;
 window.renderPaie = renderPaie;
 window.exportBulletinPDF = exportBulletinPDF;
-window.calcPaie = calcPaie;
-window.openPaieModal = openPaieModal;
-window.savePaie = savePaie;
-window.renderPaie = renderPaie;
-window.exportBulletinPDF = exportBulletinPDF;
+
+
 
 // ══════════════════════════════════════════
 // MODULE IMMOBILISATIONS
