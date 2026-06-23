@@ -18,6 +18,8 @@ import {
   orderBy,
   setDoc,
   getDoc,
+  onSnapshot,
+  where,
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 // ── BASE DE DONNÉES ROBOT (cache des réponses)
@@ -87,6 +89,7 @@ window._fbOrderBy = orderBy;
 window._fbSetDoc = setDoc;
 window._fbGetDoc = getDoc;
 window._fbReady = true;
+window._firebaseFirestore = { onSnapshot, doc, getDocs, collection, query, where };
 document.dispatchEvent(new Event('firebase-ready'));
 
 // ══════════════════════════════════════════
@@ -9443,34 +9446,504 @@ window.ajouterExercice = ajouterExercice;
 window.renderSocietes = renderSocietes;
 
 // ══════════════════════════════════════════════════════════════════
-// ██  MODULE 3 — DROITS UTILISATEURS & AUDIT TRAIL
 // ══════════════════════════════════════════════════════════════════
-let collaborateurs = [];   // { id, email, nom, role, invitePar, accepte, createdAt }
-let auditLogs = [];        // { id, action, module, detail, user, ts }
+// ██  MODULE COLLABORATION v2 — Code unique + WebRTC + 3D
+// ══════════════════════════════════════════════════════════════════
+
+let collaborateurs = [];
+let auditLogs = [];
+let collabUnsubscribe = null;   // listener Firestore temps réel
+let isCollabMode = false;       // true si connecté en tant que collaborateur
+let collabOwnerUid = null;      // uid du propriétaire (mode collab)
+
+// WebRTC
+let localStream = null;
+let peerConnection = null;
+let videoCallInterval = null;
+let videoCallSeconds = 0;
+let micEnabled = true;
+let camEnabled = true;
 
 const ROLES = {
-  admin:      { label: 'Administrateur', couleur: 'var(--warm)', perms: ['*'] },
-  comptable:  { label: 'Comptable',       couleur: 'var(--blue)', perms: ['saisie','journal','grandlivre','balance','bilan','resultat','tresorerie','factures','devis','clients','fournisseurs','paie','immobilisations','stocks','rapprochement','budgets','lettrage','declarations','analytique','effets'] },
-  gestionnaire:{ label: 'Gestionnaire',  couleur: 'var(--teal)', perms: ['factures','devis','clients','fournisseurs','stocks','budgets'] },
-  lecteur:    { label: 'Lecture seule',   couleur: 'var(--muted)', perms: ['journal','grandlivre','balance','bilan','resultat','tresorerie'] },
+  admin:       { label: 'Administrateur', couleur: 'var(--warm)',  perms: ['*'] },
+  comptable:   { label: 'Comptable',      couleur: 'var(--blue)',  perms: ['saisie','journal','grandlivre','balance','bilan','resultat','tresorerie','factures','devis','clients','fournisseurs','paie','immobilisations','stocks','rapprochement','budgets','lettrage','declarations','analytique','effets'] },
+  gestionnaire:{ label: 'Gestionnaire',   couleur: 'var(--teal)',  perms: ['factures','devis','clients','fournisseurs','stocks','budgets'] },
+  lecteur:     { label: 'Lecture seule',  couleur: 'var(--muted)', perms: ['journal','grandlivre','balance','bilan','resultat','tresorerie'] },
 };
 
+// ── Audit log ──────────────────────────────────────────────────
 function auditLog(action, module, detail) {
   const log = {
-    id: Date.now(),
-    action,
-    module,
-    detail,
+    id: Date.now(), action, module, detail,
     user: currentProfile?.email || currentProfile?.company || 'Inconnu',
     ts: new Date().toISOString(),
   };
   auditLogs.unshift(log);
   if (auditLogs.length > 500) auditLogs = auditLogs.slice(0, 500);
-  // Sauvegarder en Firestore (best-effort, non bloquant)
   if (window._fbReady && currentProfile?.id) {
     window._fbAddDoc(window._fbCollection(window._db, 'profiles', currentProfile.id, 'audit_logs'), log).catch(() => {});
   }
 }
+
+// ── Génération du code unique ──────────────────────────────────
+function genererCodeString() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = 'COMEO-';
+  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+}
+
+async function genererCodeCollab() {
+  if (!window._fbReady || !currentProfile?.id) { toast('Non connecté', 'error'); return; }
+  const code = genererCodeString();
+  const expiresAt = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString(); // 7 jours
+  const data = {
+    code,
+    ownerUid: currentProfile.id,
+    ownerEmail: currentProfile.email || '',
+    ownerCompany: currentProfile.company || '',
+    createdAt: new Date().toISOString(),
+    expiresAt,
+    actif: true,
+    collaborateurs: [],
+  };
+  try {
+    await window._fbSetDoc(window._fbDoc(window._db, 'collab_sessions', currentProfile.id), data);
+    document.getElementById('collabCodeText').textContent = code;
+    document.getElementById('collabCodeExpiry').textContent = `Valide jusqu'au ${new Date(expiresAt).toLocaleDateString('fr-FR')}`;
+    document.getElementById('btnCopierCode').disabled = false;
+    toast('✓ Code généré ! Partagez-le à vos collaborateurs.', 'success');
+    auditLog('CODE_GEN', 'collaboration', `Nouveau code généré : ${code}`);
+    ecouterCollabsTempsReel();
+  } catch(e) {
+    toast('Erreur génération code : ' + e.message, 'error');
+  }
+}
+
+async function copierCodeCollab() {
+  const code = document.getElementById('collabCodeText').textContent;
+  if (!code || code === '——————') return;
+  const company = currentProfile?.company || 'COMEO AI';
+  const texte = `Bonjour ! Voici votre code d'accès collaborateur COMEO AI pour ${company} :\n\n🔑 ${code}\n\nConnectez-vous sur l'application, cliquez sur "Rejoindre un espace" et collez ce code.`;
+  try {
+    await navigator.clipboard.writeText(texte);
+    toast('✓ Code copié ! Partagez-le par WhatsApp, SMS ou email.', 'success');
+  } catch(e) {
+    toast('Code : ' + code, 'info');
+  }
+}
+
+// ── Écoute temps réel des collaborateurs connectés ────────────
+function ecouterCollabsTempsReel() {
+  if (!window._fbReady || !currentProfile?.id) return;
+  if (collabUnsubscribe) collabUnsubscribe();
+
+  const { onSnapshot, doc } = window._firebaseFirestore || {};
+  if (!onSnapshot) {
+    // Fallback polling si onSnapshot pas exposé
+    setInterval(async () => {
+      const snap = await window._fbGetDoc(window._fbDoc(window._db, 'collab_sessions', currentProfile.id));
+      if (snap.exists()) rafraichirSlotsCollab(snap.data());
+    }, 5000);
+    return;
+  }
+
+  collabUnsubscribe = onSnapshot(doc(window._db, 'collab_sessions', currentProfile.id), (snap) => {
+    if (snap.exists()) rafraichirSlotsCollab(snap.data());
+  });
+}
+
+function rafraichirSlotsCollab(data) {
+  const slots = document.getElementById('collabSlots');
+  const videoSection = document.getElementById('collabVideoSection');
+  if (!slots) return;
+  const collabs = data.collaborateurs || [];
+  collaborateurs = collabs;
+
+  if (!collabs.length) {
+    slots.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0">Aucun collaborateur connecté.</div>';
+    if (videoSection) videoSection.style.display = 'none';
+    return;
+  }
+
+  if (videoSection && collabs.length > 0) videoSection.style.display = 'block';
+
+  // Affichage 3D des slots
+  slots.innerHTML = collabs.map((c, i) => `
+    <div style="
+      display:flex;align-items:center;gap:10px;
+      background:var(--surface2);border:1px solid var(--line);
+      border-radius:10px;padding:10px 14px;
+      transform:perspective(400px) rotateX(${i % 2 === 0 ? 1 : -1}deg) translateZ(2px);
+      transition:transform .3s
+    ">
+      <div style="
+        width:36px;height:36px;border-radius:50%;
+        background:linear-gradient(135deg,var(--warm),var(--blue));
+        display:flex;align-items:center;justify-content:center;
+        font-weight:700;font-size:14px;color:#fff;flex-shrink:0
+      ">${(c.nom || c.email || '?')[0].toUpperCase()}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:13px">${c.nom || c.email}</div>
+        <div style="font-size:11px;color:var(--muted)">${ROLES[c.role]?.label || 'Comptable'} · <span style="color:#22c55e">● En ligne</span></div>
+      </div>
+      <button onclick="revoquerCollaborateurV2('${c.uid}')" style="
+        background:rgba(220,38,38,.1);border:1px solid rgba(220,38,38,.3);
+        color:#dc2626;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:11px
+      ">Révoquer</button>
+    </div>
+  `).join('');
+}
+
+// ── Chargement initial du code existant ───────────────────────
+async function loadCollabCode() {
+  if (!window._fbReady || !currentProfile?.id) return;
+  try {
+    const snap = await window._fbGetDoc(window._fbDoc(window._db, 'collab_sessions', currentProfile.id));
+    if (snap.exists()) {
+      const d = snap.data();
+      document.getElementById('collabCodeText').textContent = d.code || '——————';
+      if (d.expiresAt) {
+        document.getElementById('collabCodeExpiry').textContent = `Valide jusqu'au ${new Date(d.expiresAt).toLocaleDateString('fr-FR')}`;
+      }
+      document.getElementById('btnCopierCode').disabled = false;
+      rafraichirSlotsCollab(d);
+      ecouterCollabsTempsReel();
+    }
+  } catch(e) {}
+}
+
+function openCollabModal() {
+  loadCollabCode();
+  document.getElementById('collabModal').style.display = 'flex';
+}
+
+function fermerCollabModal() {
+  document.getElementById('collabModal').style.display = 'none';
+}
+
+// ── Révoquer un collaborateur spécifique ──────────────────────
+async function revoquerCollaborateurV2(uid) {
+  if (!confirm('Révoquer cet accès ?')) return;
+  if (!window._fbReady || !currentProfile?.id) return;
+  try {
+    const snap = await window._fbGetDoc(window._fbDoc(window._db, 'collab_sessions', currentProfile.id));
+    if (!snap.exists()) return;
+    const d = snap.data();
+    const updated = (d.collaborateurs || []).filter(c => c.uid !== uid);
+    await window._fbSetDoc(window._fbDoc(window._db, 'collab_sessions', currentProfile.id), { collaborateurs: updated }, { merge: true });
+    toast('✓ Accès révoqué', 'success');
+    auditLog('REVOKE', 'collaboration', `Collaborateur ${uid} révoqué`);
+  } catch(e) { toast('Erreur révocation', 'error'); }
+}
+
+// ── Révoquer tout le monde ────────────────────────────────────
+async function revoquerTousCollab() {
+  if (!confirm('Révoquer TOUS les collaborateurs et invalider le code ?')) return;
+  if (!window._fbReady || !currentProfile?.id) return;
+  try {
+    await window._fbSetDoc(window._fbDoc(window._db, 'collab_sessions', currentProfile.id), {
+      actif: false, collaborateurs: [], code: '——————'
+    }, { merge: true });
+    document.getElementById('collabCodeText').textContent = '——————';
+    document.getElementById('collabCodeExpiry').textContent = '';
+    document.getElementById('btnCopierCode').disabled = true;
+    document.getElementById('collabSlots').innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0">Aucun collaborateur.</div>';
+    toast('✓ Tous les accès ont été révoqués', 'success');
+    auditLog('REVOKE_ALL', 'collaboration', 'Tous les accès collaborateurs révoqués');
+  } catch(e) { toast('Erreur', 'error'); }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// CÔTÉ COLLABORATEUR — Rejoindre avec le code
+// ══════════════════════════════════════════════════════════════════
+
+function ouvrirJoinCollabModal() {
+  document.getElementById('joinCodeInput').value = '';
+  document.getElementById('joinCollabErr').textContent = '';
+  document.getElementById('joinCollabModal').style.display = 'flex';
+}
+
+async function rejoindreCollab() {
+  const code = document.getElementById('joinCodeInput').value.trim().toUpperCase();
+  const errEl = document.getElementById('joinCollabErr');
+  errEl.textContent = '';
+
+  if (!code || code.length < 8) { errEl.textContent = 'Code invalide.'; return; }
+  if (!window._fbReady || !currentProfile?.id) { errEl.textContent = 'Non connecté.'; return; }
+
+  try {
+    // Chercher le code dans Firestore (collection collab_sessions)
+    const { getDocs, collection, query, where } = window._firebaseFirestore || {};
+    let sessionData = null;
+    let ownerUid = null;
+
+    if (getDocs && query && where) {
+      const q = query(collection(window._db, 'collab_sessions'), where('code', '==', code), where('actif', '==', true));
+      const snap = await getDocs(q);
+      if (snap.empty) { errEl.textContent = '❌ Code invalide ou expiré.'; return; }
+      const docSnap = snap.docs[0];
+      ownerUid = docSnap.id;
+      sessionData = docSnap.data();
+    } else {
+      errEl.textContent = 'Erreur Firebase. Rechargez la page.'; return;
+    }
+
+    // Vérifier expiration
+    if (sessionData.expiresAt && new Date(sessionData.expiresAt) < new Date()) {
+      errEl.textContent = '❌ Ce code a expiré. Demandez un nouveau code au propriétaire.'; return;
+    }
+
+    // Vérifier limite 3
+    const collabs = sessionData.collaborateurs || [];
+    if (collabs.length >= 3 && !collabs.find(c => c.uid === currentProfile.id)) {
+      errEl.textContent = '❌ Limite de 3 collaborateurs atteinte.'; return;
+    }
+
+    // Ajouter ce collaborateur si pas déjà présent
+    const dejaPresent = collabs.find(c => c.uid === currentProfile.id);
+    if (!dejaPresent) {
+      const updatedCollabs = [...collabs, {
+        uid: currentProfile.id,
+        email: currentProfile.email || '',
+        nom: currentProfile.company || currentProfile.email || 'Collaborateur',
+        role: 'comptable',
+        joinedAt: new Date().toISOString(),
+      }];
+      await window._fbSetDoc(window._fbDoc(window._db, 'collab_sessions', ownerUid), { collaborateurs: updatedCollabs }, { merge: true });
+    }
+
+    // Passer en mode collaborateur — charger les données du propriétaire
+    document.getElementById('joinCollabModal').style.display = 'none';
+    isCollabMode = true;
+    collabOwnerUid = ownerUid;
+    toast(`✓ Connecté à l'espace de ${sessionData.ownerCompany || sessionData.ownerEmail}`, 'success');
+    auditLog('JOIN', 'collaboration', `Rejoint l'espace de ${sessionData.ownerCompany}`);
+
+    // Charger données du propriétaire
+    await chargerDonneesProprietaire(ownerUid);
+
+    // Écoute révocation temps réel
+    ecouterRevocationCollab(ownerUid);
+
+  } catch(e) {
+    errEl.textContent = 'Erreur : ' + e.message;
+  }
+}
+
+async function chargerDonneesProprietaire(ownerUid) {
+  // Recharge les données (écritures, factures, etc.) depuis le profil du propriétaire
+  // Toutes les fonctions existantes utilisent currentProfile.id → on redirige temporairement
+  const realUid = currentProfile.id;
+  currentProfile = { ...currentProfile, id: ownerUid, _collabMode: true, _realUid: realUid };
+  toast('🔄 Chargement des données de l\'espace...', 'info');
+  // Déclencher le rechargement global
+  if (typeof loadAllData === 'function') await loadAllData();
+  else {
+    // Fallback : recharger modules individuellement
+    if (typeof loadEcritures === 'function') await loadEcritures();
+    if (typeof loadFactures === 'function') await loadFactures();
+    if (typeof loadCollaborateurs === 'function') await loadCollaborateurs();
+  }
+  updateStats();
+  toast('✓ Espace collaborateur chargé !', 'success');
+}
+
+function ecouterRevocationCollab(ownerUid) {
+  const { onSnapshot, doc } = window._firebaseFirestore || {};
+  if (!onSnapshot) return;
+  onSnapshot(doc(window._db, 'collab_sessions', ownerUid), (snap) => {
+    if (!snap.exists()) return;
+    const d = snap.data();
+    // Si notre UID n'est plus dans la liste → révoqué
+    const toujours = (d.collaborateurs || []).find(c => c.uid === (currentProfile._realUid || currentProfile.id));
+    if (!toujours || !d.actif) {
+      toast('⚠ Votre accès collaborateur a été révoqué.', 'error');
+      setTimeout(() => location.reload(), 2500);
+    }
+  });
+}
+
+// ── Bouton "Rejoindre" dans l'interface ───────────────────────
+// À appeler depuis un bouton dans renderUtilisateurs() côté collaborateur
+function afficherBoutonRejoindre() {
+  return `<button class="btn btn-ink" onclick="ouvrirJoinCollabModal()" style="font-size:13px">
+    🔑 Rejoindre un espace collaborateur
+  </button>`;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// APPEL VIDÉO WebRTC + Firebase Signaling
+// ══════════════════════════════════════════════════════════════════
+
+const ICE_SERVERS = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+  ]
+};
+
+async function ouvrirAppelVideo() {
+  document.getElementById('videoCallModal').style.display = 'flex';
+  document.getElementById('videoCallStatus').textContent = '⏳ Accès caméra/micro...';
+  document.getElementById('remoteVideoPlaceholder').style.display = 'flex';
+
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    document.getElementById('localVideo').srcObject = localStream;
+    document.getElementById('videoCallStatus').textContent = '⏳ Connexion au pair...';
+
+    await initialiserWebRTC();
+  } catch(e) {
+    document.getElementById('videoCallStatus').textContent = '❌ ' + (e.name === 'NotAllowedError' ? 'Accès caméra refusé.' : e.message);
+  }
+}
+
+async function initialiserWebRTC() {
+  const ownerUid = isCollabMode ? collabOwnerUid : currentProfile.id;
+  const isOwner = !isCollabMode;
+
+  peerConnection = new RTCPeerConnection(ICE_SERVERS);
+
+  // Ajouter les tracks locaux
+  localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+  // Recevoir le stream distant
+  peerConnection.ontrack = (event) => {
+    const remoteVideo = document.getElementById('remoteVideo');
+    remoteVideo.srcObject = event.streams[0];
+    document.getElementById('remoteVideoPlaceholder').style.display = 'none';
+    document.getElementById('videoCallStatus').textContent = '✅ Appel en cours';
+    document.getElementById('videoCallTitle').textContent = isOwner ? 'Avec collaborateur' : 'Avec propriétaire';
+    demarrerTimerAppel();
+  };
+
+  // ICE candidates → Firestore
+  peerConnection.onicecandidate = async (event) => {
+    if (!event.candidate) return;
+    const path = isOwner ? 'callerCandidates' : 'calleeCandidates';
+    await window._fbAddDoc(
+      window._fbCollection(window._db, 'video_calls', ownerUid, path),
+      event.candidate.toJSON()
+    );
+  };
+
+  if (isOwner) {
+    // Créer l'offre
+    const offer = await peerConnection.createOffer();
+    await peerConnection.setLocalDescription(offer);
+    await window._fbSetDoc(window._fbDoc(window._db, 'video_calls', ownerUid), {
+      offer: { sdp: offer.sdp, type: offer.type },
+      createdAt: new Date().toISOString(),
+    });
+
+    // Écouter la réponse
+    const { onSnapshot, doc } = window._firebaseFirestore || {};
+    if (onSnapshot) {
+      onSnapshot(doc(window._db, 'video_calls', ownerUid), async (snap) => {
+        const d = snap.data();
+        if (d?.answer && !peerConnection.remoteDescription) {
+          await peerConnection.setRemoteDescription(new RTCSessionDescription(d.answer));
+        }
+      });
+      // ICE candidates du callee
+      const { getDocs, collection } = window._firebaseFirestore || {};
+      onSnapshot(window._fbCollection(window._db, 'video_calls', ownerUid, 'calleeCandidates'), (snap) => {
+        snap.docChanges().forEach(async ch => {
+          if (ch.type === 'added') {
+            await peerConnection.addIceCandidate(new RTCIceCandidate(ch.doc.data()));
+          }
+        });
+      });
+    }
+  } else {
+    // Collaborateur : lire l'offre
+    const snap = await window._fbGetDoc(window._fbDoc(window._db, 'video_calls', ownerUid));
+    if (!snap.exists() || !snap.data()?.offer) {
+      document.getElementById('videoCallStatus').textContent = '⏳ En attente que le propriétaire démarre l\'appel...';
+      // Écoute
+      const { onSnapshot, doc } = window._firebaseFirestore || {};
+      if (onSnapshot) {
+        const unsub = onSnapshot(doc(window._db, 'video_calls', ownerUid), async (s) => {
+          if (s.data()?.offer && !peerConnection.remoteDescription) {
+            unsub();
+            await repondreAppelVideo(ownerUid);
+          }
+        });
+      }
+      return;
+    }
+    await repondreAppelVideo(ownerUid);
+  }
+}
+
+async function repondreAppelVideo(ownerUid) {
+  const snap = await window._fbGetDoc(window._fbDoc(window._db, 'video_calls', ownerUid));
+  const offer = snap.data()?.offer;
+  await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+  const answer = await peerConnection.createAnswer();
+  await peerConnection.setLocalDescription(answer);
+  await window._fbSetDoc(window._fbDoc(window._db, 'video_calls', ownerUid), {
+    answer: { sdp: answer.sdp, type: answer.type }
+  }, { merge: true });
+
+  // ICE candidates du caller
+  const { onSnapshot } = window._firebaseFirestore || {};
+  if (onSnapshot) {
+    onSnapshot(window._fbCollection(window._db, 'video_calls', ownerUid, 'callerCandidates'), (snap) => {
+      snap.docChanges().forEach(async ch => {
+        if (ch.type === 'added') {
+          await peerConnection.addIceCandidate(new RTCIceCandidate(ch.doc.data()));
+        }
+      });
+    });
+  }
+}
+
+function demarrerTimerAppel() {
+  videoCallSeconds = 0;
+  if (videoCallInterval) clearInterval(videoCallInterval);
+  videoCallInterval = setInterval(() => {
+    videoCallSeconds++;
+    const m = String(Math.floor(videoCallSeconds / 60)).padStart(2,'0');
+    const s = String(videoCallSeconds % 60).padStart(2,'0');
+    const el = document.getElementById('videoCallTimer');
+    if (el) el.textContent = `${m}:${s}`;
+  }, 1000);
+}
+
+async function terminerAppelVideo() {
+  if (peerConnection) { peerConnection.close(); peerConnection = null; }
+  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+  if (videoCallInterval) { clearInterval(videoCallInterval); videoCallInterval = null; }
+  document.getElementById('videoCallModal').style.display = 'none';
+  document.getElementById('localVideo').srcObject = null;
+  document.getElementById('remoteVideo').srcObject = null;
+  // Nettoyer Firestore signaling
+  const ownerUid = isCollabMode ? collabOwnerUid : currentProfile.id;
+  try {
+    await window._fbSetDoc(window._fbDoc(window._db, 'video_calls', ownerUid), { ended: true }, { merge: true });
+  } catch(e) {}
+  toast('Appel terminé', 'info');
+}
+
+function toggleMic() {
+  if (!localStream) return;
+  micEnabled = !micEnabled;
+  localStream.getAudioTracks().forEach(t => t.enabled = micEnabled);
+  document.getElementById('btnMicToggle').style.opacity = micEnabled ? '1' : '0.4';
+}
+
+function toggleCam() {
+  if (!localStream) return;
+  camEnabled = !camEnabled;
+  localStream.getVideoTracks().forEach(t => t.enabled = camEnabled);
+  document.getElementById('btnCamToggle').style.opacity = camEnabled ? '1' : '0.4';
+}
+
+// ══════════════════════════════════════════════════════════════════
+// RENDER UTILISATEURS (mis à jour)
+// ══════════════════════════════════════════════════════════════════
 
 async function loadCollaborateurs() {
   if (!window._fbReady || !currentProfile?.id) return;
@@ -9482,62 +9955,8 @@ async function loadCollaborateurs() {
     collaborateurs = snapC.docs.map(d => ({ ...d.data(), _docId: d.id }));
     auditLogs = snapA.docs.map(d => ({ ...d.data(), _docId: d.id })).sort((a,b) => new Date(b.ts) - new Date(a.ts));
   } catch(e) {}
-}
-
-function openCollabModal() {
-  document.getElementById('collab-email').value = '';
-  document.getElementById('collab-nom').value = '';
-  document.getElementById('collab-role').value = 'comptable';
-  document.getElementById('collabModal').style.display = 'flex';
-}
-
-async function saveCollaborateur() {
-  const email = document.getElementById('collab-email').value.trim().toLowerCase();
-  const nom = document.getElementById('collab-nom').value.trim();
-  const role = document.getElementById('collab-role').value;
-  if (!email || !nom) { toast('Email et nom obligatoires', 'error'); return; }
-  if (!email.includes('@')) { toast('Email invalide', 'error'); return; }
-  if (collaborateurs.find(c => c.email === email)) { toast('Ce collaborateur existe déjà', 'error'); return; }
-  const collab = {
-    id: Date.now(),
-    email, nom, role,
-    invitePar: currentProfile?.email || '',
-    accepte: false,
-    createdAt: new Date().toISOString(),
-  };
-  collaborateurs.push(collab);
-  if (window._fbReady && currentProfile?.id) {
-    try { const ref = await window._fbAddDoc(window._fbCollection(window._db, 'profiles', currentProfile.id, 'collaborateurs'), collab); collab._docId = ref.id; } catch(e) {}
-  }
-  auditLog('INVITE', 'utilisateurs', `Invitation envoyée à ${email} (${ROLES[role]?.label || role})`);
-  document.getElementById('collabModal').style.display = 'none';
-  toast(`✓ Invitation envoyée à ${email} avec le rôle ${ROLES[role]?.label}`, 'success');
-  renderUtilisateurs();
-}
-
-async function changerRole(id, newRole) {
-  const collab = collaborateurs.find(c => String(c.id) === String(id));
-  if (!collab) return;
-  const oldRole = collab.role;
-  collab.role = newRole;
-  if (window._fbReady && currentProfile?.id && collab._docId) {
-    try { await window._fbSetDoc(window._fbDoc(window._db, 'profiles', currentProfile.id, 'collaborateurs', collab._docId), { role: newRole }, { merge: true }); } catch(e) {}
-  }
-  auditLog('ROLE_CHANGE', 'utilisateurs', `${collab.nom} : ${ROLES[oldRole]?.label} → ${ROLES[newRole]?.label}`);
-  toast(`✓ Rôle de ${collab.nom} changé en ${ROLES[newRole]?.label}`, 'success');
-  renderUtilisateurs();
-}
-
-async function revoquerCollaborateur(id) {
-  if (!confirm('Révoquer cet accès ?')) return;
-  const collab = collaborateurs.find(c => String(c.id) === String(id));
-  collaborateurs = collaborateurs.filter(c => String(c.id) !== String(id));
-  if (window._fbReady && currentProfile?.id && collab?._docId) {
-    try { await window._fbDeleteDoc(window._fbDoc(window._db, 'profiles', currentProfile.id, 'collaborateurs', collab._docId)); } catch(e) {}
-  }
-  auditLog('REVOKE', 'utilisateurs', `Accès révoqué : ${collab?.email}`);
-  toast('Accès révoqué', 'success');
-  renderUtilisateurs();
+  // Charger aussi le code collab existant
+  await loadCollabCode();
 }
 
 function renderUtilisateurs() {
@@ -9549,58 +9968,106 @@ function renderUtilisateurs() {
   document.getElementById('users-kpi-invites').textContent = collaborateurs.filter(c => !c.accepte).length;
   document.getElementById('users-kpi-logs').textContent = auditLogs.length;
 
-  // Table collaborateurs
-  const collabHtml = `<div class="card" style="margin-bottom:16px">
-    <div class="card-header"><div><div class="card-title">👥 Équipe & Accès</div></div>
-      <button class="btn btn-ink" onclick="openCollabModal()">+ Inviter un collaborateur</button>
+  const collabHtml = `
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header">
+      <div><div class="card-title">🔗 Collaboration temps réel</div>
+        <div class="card-sub" style="font-size:11px;color:var(--muted)">Partagez un code · Max 3 collaborateurs · Accès immédiat</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn btn-ink" onclick="openCollabModal()">⚡ Gérer le code d'accès</button>
+        <button class="btn btn-sm-wire" onclick="ouvrirJoinCollabModal()">🔑 Rejoindre un espace</button>
+      </div>
     </div>
-    <div class="dtw"><table class="dt"><thead><tr><th>Nom</th><th>Email</th><th>Rôle</th><th>Statut</th><th>Depuis</th><th></th></tr></thead>
-    <tbody>
-      <tr>
-        <td><strong>${currentProfile?.company || 'Administrateur'}</strong></td>
-        <td style="color:var(--muted);font-size:12px">${currentProfile?.email || '—'}</td>
-        <td><span class="role-badge" style="background:rgba(212,168,83,.15);color:var(--warm)">Administrateur</span></td>
-        <td><span style="color:var(--green);font-size:12px">● Actif</span></td>
-        <td style="font-size:11px;color:var(--muted)">Propriétaire</td>
-        <td></td>
-      </tr>
-      ${collaborateurs.map(c => {
-        const r = ROLES[c.role] || ROLES.lecteur;
-        return `<tr>
-          <td><strong>${c.nom}</strong></td>
-          <td style="color:var(--muted);font-size:12px">${c.email}</td>
-          <td>
-            <select class="role-select" onchange="changerRole(${c.id}, this.value)">
+
+    <!-- Mode collaborateur actif -->
+    ${isCollabMode ? `
+    <div style="background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.25);border-radius:10px;padding:12px 16px;margin:12px 0;display:flex;align-items:center;gap:12px">
+      <div style="width:10px;height:10px;border-radius:50%;background:#22c55e;box-shadow:0 0 6px #22c55e;flex-shrink:0"></div>
+      <div>
+        <div style="font-weight:600;font-size:13px;color:#22c55e">Mode collaborateur actif</div>
+        <div style="font-size:11px;color:var(--muted)">Vous travaillez sur l'espace d'un autre propriétaire.</div>
+      </div>
+      <button onclick="quitterModeCollab()" style="margin-left:auto;background:rgba(220,38,38,.1);border:1px solid rgba(220,38,38,.3);color:#dc2626;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px">Quitter l'espace</button>
+    </div>` : ''}
+
+    <div class="dtw"><table class="dt">
+      <thead><tr><th>Nom</th><th>Email</th><th>Rôle</th><th>Statut</th><th>Depuis</th><th></th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>${currentProfile?.company || 'Administrateur'}</strong></td>
+          <td style="color:var(--muted);font-size:12px">${currentProfile?.email || '—'}</td>
+          <td><span class="role-badge" style="background:rgba(212,168,83,.15);color:var(--warm)">Administrateur</span></td>
+          <td><span style="color:var(--green);font-size:12px">● Actif</span></td>
+          <td style="font-size:11px;color:var(--muted)">Propriétaire</td>
+          <td></td>
+        </tr>
+        ${collaborateurs.map(c => {
+          const r = ROLES[c.role] || ROLES.lecteur;
+          return `<tr>
+            <td><strong>${c.nom}</strong></td>
+            <td style="color:var(--muted);font-size:12px">${c.email}</td>
+            <td><select class="role-select" onchange="changerRole(${c.id}, this.value)">
               ${Object.entries(ROLES).map(([k,v]) => `<option value="${k}" ${c.role===k?'selected':''}>${v.label}</option>`).join('')}
-            </select>
-          </td>
-          <td><span style="color:${c.accepte ? 'var(--green)' : 'var(--muted)'};font-size:12px">${c.accepte ? '● Actif' : '⏳ En attente'}</span></td>
-          <td style="font-size:11px;color:var(--muted)">${new Date(c.createdAt).toLocaleDateString('fr-FR')}</td>
-          <td><button class="btn btn-sm-wire" onclick="revoquerCollaborateur(${c.id})" style="color:var(--rust)">✕ Révoquer</button></td>
-        </tr>`;
-      }).join('')}
-    </tbody></table></div>
+            </select></td>
+            <td><span style="color:${c.accepte ? 'var(--green)' : 'var(--muted)'};font-size:12px">${c.accepte ? '● Actif' : '⏳ En attente'}</span></td>
+            <td style="font-size:11px;color:var(--muted)">${new Date(c.createdAt).toLocaleDateString('fr-FR')}</td>
+            <td><button class="btn btn-sm-wire" onclick="revoquerCollaborateurV2('${c.uid || c.id}')" style="color:var(--rust)">✕</button></td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table></div>
   </div>`;
 
-  // Journal d'audit
   const logsHtml = `<div class="card">
-    <div class="card-header"><div><div class="card-title">📋 Journal d'audit</div><div class="card-sub">Historique des actions — 500 dernières entrées</div></div>
+    <div class="card-header"><div><div class="card-title">📋 Journal d'audit</div>
+      <div class="card-sub">500 dernières actions</div></div>
       <button class="btn btn-sm-wire" onclick="exportAuditPDF()">↓ Export PDF</button>
     </div>
-    ${auditLogs.length ? `<div class="dtw"><table class="dt"><thead><tr><th>Date/heure</th><th>Action</th><th>Module</th><th>Détail</th><th>Utilisateur</th></tr></thead>
-    <tbody>${auditLogs.slice(0,100).map(l => {
-      const actionColors = { 'SAVE':'var(--green)','DELETE':'var(--rust)','EXPORT':'var(--blue)','INVITE':'var(--teal)','REVOKE':'var(--rust)','ROLE_CHANGE':'var(--warm)','LOGIN':'var(--muted)','LOGOUT':'var(--muted)' };
-      return `<tr>
-        <td style="font-family:var(--font-mono);font-size:11px">${new Date(l.ts).toLocaleString('fr-FR')}</td>
-        <td><span style="color:${actionColors[l.action]||'var(--ink)'};font-weight:600;font-size:12px">${l.action}</span></td>
-        <td style="font-size:12px;color:var(--muted)">${l.module}</td>
-        <td style="font-size:12px">${l.detail}</td>
-        <td style="font-size:11px;color:var(--muted)">${l.user}</td>
-      </tr>`;
-    }).join('')}</tbody></table></div>` : '<div class="empty-state" style="padding:20px"><div class="icon">📋</div><p>Aucun log d\'audit pour le moment.</p></div>'}
+    ${auditLogs.length ? `<div class="dtw"><table class="dt">
+      <thead><tr><th>Date/heure</th><th>Action</th><th>Module</th><th>Détail</th><th>Utilisateur</th></tr></thead>
+      <tbody>${auditLogs.slice(0,100).map(l => {
+        const col = { 'SAVE':'var(--green)','DELETE':'var(--rust)','EXPORT':'var(--blue)','INVITE':'var(--teal)','REVOKE':'var(--rust)','ROLE_CHANGE':'var(--warm)','LOGIN':'var(--muted)','LOGOUT':'var(--muted)','CODE_GEN':'var(--warm)','JOIN':'var(--teal)','REVOKE_ALL':'var(--rust)' };
+        return `<tr>
+          <td style="font-family:var(--font-mono);font-size:11px">${new Date(l.ts).toLocaleString('fr-FR')}</td>
+          <td><span style="color:${col[l.action]||'var(--ink)'};font-weight:600;font-size:12px">${l.action}</span></td>
+          <td style="font-size:12px;color:var(--muted)">${l.module}</td>
+          <td style="font-size:12px">${l.detail}</td>
+          <td style="font-size:11px;color:var(--muted)">${l.user}</td>
+        </tr>`;
+      }).join('')}</tbody></table></div>`
+    : '<div class="empty-state" style="padding:20px"><div class="icon">📋</div><p>Aucun log.</p></div>'}
   </div>`;
 
   el.innerHTML = collabHtml + logsHtml;
+}
+
+async function quitterModeCollab() {
+  if (!confirm('Quitter l\'espace collaborateur ?')) return;
+  // Retirer son UID de la session
+  if (collabOwnerUid) {
+    try {
+      const snap = await window._fbGetDoc(window._fbDoc(window._db, 'collab_sessions', collabOwnerUid));
+      if (snap.exists()) {
+        const updated = (snap.data().collaborateurs || []).filter(c => c.uid !== (currentProfile._realUid || currentProfile.id));
+        await window._fbSetDoc(window._fbDoc(window._db, 'collab_sessions', collabOwnerUid), { collaborateurs: updated }, { merge: true });
+      }
+    } catch(e) {}
+  }
+  location.reload();
+}
+
+async function changerRole(id, newRole) {
+  const collab = collaborateurs.find(c => String(c.id) === String(id));
+  if (!collab) return;
+  const oldRole = collab.role;
+  collab.role = newRole;
+  if (window._fbReady && currentProfile?.id && collab._docId) {
+    try { await window._fbSetDoc(window._fbDoc(window._db, 'profiles', currentProfile.id, 'collaborateurs', collab._docId), { role: newRole }, { merge: true }); } catch(e) {}
+  }
+  auditLog('ROLE_CHANGE', 'utilisateurs', `${collab.nom} : ${ROLES[oldRole]?.label} → ${ROLES[newRole]?.label}`);
+  toast(`✓ Rôle modifié`, 'success');
+  renderUtilisateurs();
 }
 
 function exportAuditPDF() {
@@ -9620,15 +10087,26 @@ function exportAuditPDF() {
     margin: { left:14, right:14 },
   });
   doc.save(`AUDIT_${company.replace(/\s+/g,'_')}.pdf`);
-  toast('✓ Journal d\'audit exporté', 'success');
+  toast('✓ Journal exporté', 'success');
 }
 
-window.openCollabModal = openCollabModal;
-window.saveCollaborateur = saveCollaborateur;
-window.changerRole = changerRole;
-window.revoquerCollaborateur = revoquerCollaborateur;
-window.renderUtilisateurs = renderUtilisateurs;
-window.exportAuditPDF = exportAuditPDF;
+// ── Exposer globalement ────────────────────────────────────────
+window.openCollabModal        = openCollabModal;
+window.fermerCollabModal      = fermerCollabModal;
+window.genererCodeCollab      = genererCodeCollab;
+window.copierCodeCollab       = copierCodeCollab;
+window.revoquerCollaborateurV2 = revoquerCollaborateurV2;
+window.revoquerTousCollab     = revoquerTousCollab;
+window.ouvrirJoinCollabModal  = ouvrirJoinCollabModal;
+window.rejoindreCollab        = rejoindreCollab;
+window.quitterModeCollab      = quitterModeCollab;
+window.changerRole            = changerRole;
+window.renderUtilisateurs     = renderUtilisateurs;
+window.exportAuditPDF         = exportAuditPDF;
+window.ouvrirAppelVideo       = ouvrirAppelVideo;
+window.terminerAppelVideo     = terminerAppelVideo;
+window.toggleMic              = toggleMic;
+window.toggleCam              = toggleCam;
 
 // ══════════════════════════════════════════════════════════════════
 // ██  MODULE 4 — EFFETS DE COMMERCE (LCR / Billet à ordre / Escompte)
