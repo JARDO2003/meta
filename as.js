@@ -7995,14 +7995,23 @@ async function callMistral(messages, systemPrompt) {
 // ══════════════════════════════════════════
 
 
-// Barème IR progressif Côte d'Ivoire (approximatif DISA)
-function calcIR(netImposable) {
-  if (netImposable <= 75000) return 0;
-  if (netImposable <= 240000) return Math.round((netImposable - 75000) * 0.165);
-  if (netImposable <= 800000) return Math.round(27225 + (netImposable - 240000) * 0.21);
-  if (netImposable <= 2400000) return Math.round(144825 + (netImposable - 800000) * 0.246);
-  return Math.round(538425 + (netImposable - 2400000) * 0.27);
-}
+// Barème IR progressif Côte d'Ivoire (DGI 2024)
+const annuel = brutMensuel * 12;
+  const tranches = [
+    { max: 600000,   taux: 0 },
+    { max: 1800000,  taux: 0.10 },
+    { max: 3000000,  taux: 0.15 },
+    { max: 6000000,  taux: 0.20 },
+    { max: 12000000, taux: 0.25 },
+    { max: Infinity, taux: 0.30 },
+  ];
+  let ir = 0, prev = 0;
+  for (const t of tranches) {
+    if (annuel <= prev) break;
+    ir += (Math.min(annuel, t.max) - prev) * t.taux;
+    prev = t.max;
+  }
+  return Math.round(ir / 12);
 
 // ══════════════════════════════════════════
 // MODULE PAIE v2 — Barème IR ivoirien complet
