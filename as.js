@@ -2345,6 +2345,7 @@ const RENDERERS = {
   devis: renderDevis,
   clients: renderClients,
   fournisseurs: renderFournisseurs,
+  tafire: renderTAFIRE,
   // ── NOUVEAUX MODULES ──
   paie: renderPaie,
   immobilisations: renderImmobilisations,
@@ -6169,36 +6170,114 @@ async function handleRobotQuery(query) {
     .join(' / ');
 
   // ── System prompt robot complet avec actions ──
-  const systemRobot = `Tu es COMEO AI, assistante vocale et comptable experte SYSCOHADA intégrée à la plateforme Marcio dev.
+ // Contexte paie
+  const paieResume = salaries.slice(0,8).map(s =>
+    `${s.nom}(${s.mois}):brut=${fnPDF(s.brut)},net=${fnPDF(s.netAPayer)}`
+  ).join(' | ');
 
-CAPACITÉS D'ACTION — Tu peux exécuter des actions réelles sur les données :
-1. Créer une facture → répondre avec ###CREATE_FACTURE### suivi du JSON
-2. Afficher le journal 3D → répondre avec ###SHOW_3D_JOURNAL### (avec filtre optionnel)
-3. Naviguer vers une vue → répondre avec ###NAVIGATE### suivi du nom de vue
-4. Ouvrir YouTube, Google, ou tout site web → répondre avec ###OPEN_URL### suivi du JSON
+  // Contexte immobilisations
+  const immobResume = immobilisations.slice(0,8).map(im =>
+    `${im.nom}:val=${fnPDF(im.valeur)},vnc=${fnPDF((im.valeur||0)-(im.amortCumul||0))},dot=${fnPDF(im.dotAnnuelle)}/an`
+  ).join(' | ');
 
-Pour ouvrir un site ou faire une recherche :
-###OPEN_URL###{"url":"https://www.youtube.com/results?search_query=TERME","label":"YouTube — TERME"}
-###OPEN_URL###{"url":"https://www.google.com/search?q=TERME","label":"Google — TERME"}
-###OPEN_URL###{"url":"https://www.youtube.com","label":"YouTube"}
-###OPEN_URL###{"url":"https://www.google.com","label":"Google"}
+  // Contexte stock
+  const stockResume = stockArticles.slice(0,8).map(a =>
+    `${a.nom}:qte=${a.qteActuelle},cmup=${fnPDF(a.cmup)}`
+  ).join(' | ');
 
-Remplacer TERME par les mots-clés extraits de la demande vocale, en remplaçant les espaces par +.
-Exemples de phrases déclenchantes : "ouvre youtube", "cherche sur google", "montre-moi des vidéos de X", "recherche X sur youtube", "ouvre le navigateur".
-4. Analyser et donner un avis comptable → répondre normalement
+  // Déclarations fiscales
+  const tvaCollec = ['4431','4432'].reduce((s,c) => s+(map[c]?map[c].credit-map[c].debit:0),0);
+  const tvaDeduc = ['4451','4452','4453','4454'].reduce((s,c) => s+(map[c]?map[c].debit-map[c].credit:0),0);
+  const tvaNette = tvaCollec - tvaDeduc;
+  const ca7 = ['701','702','703','704','705','706','707'].reduce((s,c) => s+(map[c]?map[c].credit-map[c].debit:0),0);
+  const imfAnnuel = Math.max(3000000, Math.round(ca7*0.005));
+  const prodF = Object.entries(map).filter(([c])=>c[0]==='7').reduce((s,[,a])=>s+(a.credit-a.debit),0);
+  const chgF = Object.entries(map).filter(([c])=>c[0]==='6').reduce((s,[,a])=>s+(a.debit-a.credit),0);
+  const isAnnuel = (prodF-chgF)>0 ? Math.round((prodF-chgF)*0.25) : 0;
 
-FORMAT DES ACTIONS — utilise exactement ces balises :
+  const systemRobot = `Tu es COMEO AI v5, assistante vocale et comptable experte SYSCOHADA. Tu maîtrises et contrôles TOUS les modules de la plateforme COMEO en temps réel.
 
-Pour créer une facture :
-###CREATE_FACTURE###{"clientNom":"NOM CLIENT","modeReglement":"virement","lignes":[{"designation":"PRODUIT","qte":1,"pu":50000,"remise":0,"tva":18}],"notes":"Note"}
+════════════════════════════════════════════
+CAPACITÉS D'ACTION COMPLÈTES — TOUS MODULES
+════════════════════════════════════════════
+Tu peux exécuter des actions réelles. Utilise exactement ces balises :
 
-Pour afficher le journal 3D :
-###SHOW_3D_JOURNAL###{"filtre":"all"}
-ou avec filtre : ###SHOW_3D_JOURNAL###{"filtre":"AC"} ou {"filtre":"VE"} etc.
+1. COMPTABILITÉ — Créer une ou plusieurs écritures :
+   ###ECRITURE###{"journal":"OD","libelle":"...","lignes":[{"compte":"601","libelle":"...","debit":50000,"credit":0},...]}
 
-Pour naviguer :
-###NAVIGATE###{"vue":"factures"}
-Vues disponibles : dashboard, saisie, journal, grandlivre, balance, bilan, resultat, tresorerie, factures, clients, fournisseurs
+2. FACTURATION — Créer une facture :
+   ###CREATE_FACTURE###{"clientNom":"NOM","modeReglement":"virement","lignes":[{"designation":"...","qte":1,"pu":50000,"remise":0,"tva":18}]}
+
+3. PAIE — Créer une fiche de paie :
+   ###CREATE_PAIE###{"nom":"NOM SALARIÉ","poste":"Poste","mois":"2024-01","brut":250000}
+
+4. IMMOBILISATION — Enregistrer une immobilisation :
+   ###CREATE_IMMOB###{"nom":"Ordinateur Dell","valeur":850000,"cat":"2442","methode":"lineaire","dateAcq":"2024-01-15","ref":"REF001"}
+
+5. NAVIGATION — Aller à un module :
+   ###NAVIGATE###{"vue":"NOM_VUE"}
+   Vues : dashboard, saisie, journal, grandlivre, balance, bilan, resultat, tresorerie, factures, devis, clients, fournisseurs, paie, immobilisations, stocks, rapprochement, budgets, lettrage, declarations, tafire, exercices
+
+6. JOURNAL 3D — Afficher :
+   ###SHOW_3D_JOURNAL###{"filtre":"all"}
+
+7. LIEN WEB :
+   ###OPEN_URL###{"url":"https://...","label":"..."}
+
+8. FILTRE — Appliquer un filtre sur une vue :
+   ###FILTRE###{"type":"journal","dateDebut":"2024-01-01","dateFin":"2024-12-31","journal":"VE","compte":""}
+
+════════════════════════════════════════════
+DONNÉES TEMPS RÉEL — ${company} (exercice ${yr})
+════════════════════════════════════════════
+Date : ${today}
+Écritures : ${nb} | Débit total : ${fnPDF(tD)} FCFA | Crédit total : ${fnPDF(tC)} FCFA
+${Math.abs(tD-tC)<1 ? '✓ Balance équilibrée' : '⚠ DÉSÉQUILIBRE : '+fnPDF(Math.abs(tD-tC))+' FCFA'}
+
+SOLDES COMPTES CLÉS :
+${soldes}
+
+JOURNAL (15 dernières écritures) :
+${jrnlResume || 'Aucune écriture'}
+
+CLIENTS (${clientsList.length}) : ${clientsResume || 'Aucun'}
+FOURNISSEURS (${fournisseursList.length}) : ${fourResume || 'Aucun'}
+FACTURES RÉCENTES : ${facturesResume || 'Aucune'}
+
+MODULE PAIE (${salaries.length} salariés) :
+${paieResume || 'Aucun salarié enregistré'}
+Masse salariale brute : ${fnPDF(salaries.reduce((s,x)=>s+(x.brut||0),0))} FCFA
+Net total à payer : ${fnPDF(salaries.reduce((s,x)=>s+(x.netAPayer||0),0))} FCFA
+
+MODULE IMMOBILISATIONS (${immobilisations.length}) :
+${immobResume || 'Aucune immobilisation'}
+Valeur brute totale : ${fnPDF(immobilisations.reduce((s,x)=>s+(x.valeur||0),0))} FCFA
+Dot. annuelle totale : ${fnPDF(immobilisations.reduce((s,x)=>s+(x.dotAnnuelle||0),0))} FCFA
+
+MODULE STOCKS (${stockArticles.length} articles) :
+${stockResume || 'Aucun article'}
+
+DÉCLARATIONS FISCALES EN TEMPS RÉEL :
+TVA collectée : ${fnPDF(tvaCollec)} FCFA | TVA déductible : ${fnPDF(tvaDeduc)} FCFA | TVA nette à payer : ${fnPDF(tvaNette)} FCFA
+CA HT (7xxx) : ${fnPDF(ca7)} FCFA | IMF annuel : ${fnPDF(imfAnnuel)} FCFA
+Résultat fiscal : ${fnPDF(prodF-chgF)} FCFA | IS à payer (25%) : ${fnPDF(isAnnuel)} FCFA
+
+ANALYSE FINANCIÈRE :
+Produits (cl.7) : ${fnPDF(Object.entries(map).filter(([c])=>c[0]==='7').reduce((s,[,a])=>s+(a.credit-a.debit),0))} FCFA
+Charges (cl.6) : ${fnPDF(Object.entries(map).filter(([c])=>c[0]==='6').reduce((s,[,a])=>s+(a.debit-a.credit),0))} FCFA
+Trésorerie (cl.5) : ${fnPDF(Object.entries(map).filter(([c])=>c[0]==='5').reduce((s,[,a])=>s+(a.debit-a.credit),0))} FCFA
+Clients (411) : ${fnPDF((map['411']?.debit||0)-(map['411']?.credit||0))} FCFA à encaisser
+Fournisseurs (401) : ${fnPDF((map['401']?.credit||0)-(map['401']?.debit||0))} FCFA à payer
+
+════════════════════════════════════════════
+PERSONNALITÉ
+════════════════════════════════════════════
+Tu es l'IA la plus avancée de comptabilité SYSCOHADA au monde. Tu raisonnes, tu agis, tu expliques.
+- Oral fluide, phrases complètes, naturelles et chaleureuses.
+- Avant une action : une phrase d'annonce. Après : confirme le résultat.
+- Tu maîtrises le barème IR ivoirien, le SYSCOHADA 2017, la fiscalité CI.
+- Jamais de markdown, listes à puces ou "en tant qu'IA".
+- 2 à 5 phrases ; précis sur les chiffres.
 
 PERSONNALITÉ VOCALE — Parle comme Gemini ou ChatGPT Voice : fluide, intelligente, chaleureuse.
 - Raisonne en profondeur avant de répondre, puis exprime une réponse claire et pertinente.
@@ -6345,7 +6424,55 @@ ANALYSE AUTOMATIQUE :
       }
       return;
     }
+// ── Handler CREATE_PAIE ──
+    if (reply.includes('###CREATE_PAIE###')) {
+      const parts = reply.split('###CREATE_PAIE###');
+      const texteBefore = parts[0].trim();
+      if (texteBefore) robotSpeak(stripRobotVoiceText(texteBefore));
+      try {
+        const jsonMatch = parts[1].trim().match(/(\{[\s\S]*\})/);
+        if (jsonMatch) {
+          const p = JSON.parse(jsonMatch[1]);
+          // Remplir le modal paie et déclencher la sauvegarde
+          document.getElementById('paie-nom').value = p.nom || '';
+          document.getElementById('paie-poste').value = p.poste || '';
+          document.getElementById('paie-mois').value = p.mois || new Date().toISOString().slice(0,7);
+          document.getElementById('paie-brut').value = p.brut || 0;
+          calcPaie();
+          await savePaie();
+          const sal = salaries[salaries.length-1];
+          if (sal) {
+            setTimeout(() => robotSpeak(`Parfait, la fiche de paie de ${sal.nom} pour ${sal.mois} est enregistrée. Son net à payer est de ${fnPDF(sal.netAPayer)} francs CFA, avec ${fnPDF(sal.ir)} d'impôt sur le revenu.`), texteBefore?2000:0);
+          }
+        }
+      } catch(pe) { robotSpeak("Je n'ai pas pu créer la fiche de paie. Reformulez s'il vous plaît."); }
+      return;
+    }
 
+    // ── Handler CREATE_IMMOB ──
+    if (reply.includes('###CREATE_IMMOB###')) {
+      const parts = reply.split('###CREATE_IMMOB###');
+      const texteBefore = parts[0].trim();
+      if (texteBefore) robotSpeak(stripRobotVoiceText(texteBefore));
+      try {
+        const jsonMatch = parts[1].trim().match(/(\{[\s\S]*\})/);
+        if (jsonMatch) {
+          const p = JSON.parse(jsonMatch[1]);
+          document.getElementById('immob-nom').value = p.nom || '';
+          document.getElementById('immob-valeur').value = p.valeur || 0;
+          document.getElementById('immob-categorie').value = p.cat || '2442';
+          document.getElementById('immob-methode').value = p.methode || 'lineaire';
+          document.getElementById('immob-date').value = p.dateAcq || new Date().toISOString().split('T')[0];
+          document.getElementById('immob-ref').value = p.ref || '';
+          await saveImmob();
+          const im = immobilisations[immobilisations.length-1];
+          if (im) {
+            setTimeout(() => robotSpeak(`L'immobilisation "${im.nom}" a été enregistrée pour une valeur brute de ${fnPDF(im.valeur)} francs CFA, avec une dotation annuelle de ${fnPDF(im.dotAnnuelle)} francs CFA.`), texteBefore?2000:0);
+          }
+        }
+      } catch(pe) { robotSpeak("Je n'ai pas pu enregistrer l'immobilisation. Reformulez s'il vous plaît."); }
+      return;
+    }
     // 2. Afficher journal 3D
     if (reply.includes('###SHOW_3D_JOURNAL###')) {
       const parts = reply.split('###SHOW_3D_JOURNAL###');
@@ -6382,18 +6509,13 @@ ANALYSE AUTOMATIQUE :
         if (jsonMatch) {
           const p = JSON.parse(jsonMatch[1]);
           const vueNames = {
-            factures: 'factures',
-            clients: 'clients',
-            fournisseurs: 'fournisseurs',
-            journal: 'journal',
-            balance: 'balance',
-            bilan: 'bilan',
-            resultat: 'resultat',
-            tresorerie: 'tresorerie',
-            dashboard: 'dashboard',
-            saisie: 'saisie',
-            grandlivre: 'grandlivre',
-          };
+  factures: 'factures', clients: 'clients', fournisseurs: 'fournisseurs',
+  journal: 'journal', balance: 'balance', bilan: 'bilan', resultat: 'resultat',
+  tresorerie: 'tresorerie', dashboard: 'dashboard', saisie: 'saisie', grandlivre: 'grandlivre',
+  paie: 'paie', immobilisations: 'immobilisations', stocks: 'stocks',
+  rapprochement: 'rapprochement', budgets: 'budgets', lettrage: 'lettrage',
+  declarations: 'declarations', tafire: 'tafire', exercices: 'exercices', devis: 'devis',
+};
           const vue = vueNames[p.vue] || 'dashboard';
           if (texteBefore) robotSpeak(stripRobotVoiceText(texteBefore));
           setTimeout(() => {
@@ -7884,80 +8006,120 @@ function calcIR(netImposable) {
   return Math.round(538425 + (netImposable - 2400000) * 0.27);
 }
 
-function calcPaie() {
-  const brut = parseFloat(document.getElementById('paie-brut')?.value) || 0;
-  if (!brut) return;
-  // Retenues salariales
-  const cnpsSal = Math.round(Math.min(brut, 1647315) * 0.077); // Plafonné
-  const netAvantIR = brut - cnpsSal;
-  const ir = calcIR(netAvantIR);
-  const netAPayer = brut - cnpsSal - ir;
-  // Charges patronales
-  const cnpsPat = Math.round(brut * 0.16);
-  const tpa = Math.round(brut * 0.004);
-  const cn = Math.round(brut * 0.015);
-  const taxeApp = Math.round(brut * 0.004);
-  const chargesPatronales = cnpsPat + tpa + cn + taxeApp;
+// ══════════════════════════════════════════
+// MODULE PAIE v2 — Barème IR ivoirien complet
+// ══════════════════════════════════════════
+let salaries = [];
 
-  const res = document.getElementById('paie-calcul-result');
-  const grid = document.getElementById('paie-detail-grid');
-  if (!res || !grid) return;
-  res.style.display = 'block';
-  grid.innerHTML = `
-    <div class="bulletin-row"><span class="lbl">Salaire brut</span><span class="val">${fn(brut)} FCFA</span></div>
-    <div class="bulletin-row deduction"><span class="lbl">CNPS salarial (7,7%)</span><span class="val">- ${fn(cnpsSal)} FCFA</span></div>
-    <div class="bulletin-row deduction"><span class="lbl">Impôt sur revenu (IR/DISA)</span><span class="val">- ${fn(ir)} FCFA</span></div>
-    <div class="bulletin-row total"><span class="lbl">Net à payer</span><span class="val">${fn(netAPayer)} FCFA</span></div>
-    <div style="margin-top:10px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Charges patronales</div>
-    <div class="bulletin-row deduction"><span class="lbl">CNPS patronal (16%)</span><span class="val">${fn(cnpsPat)} FCFA</span></div>
-    <div class="bulletin-row deduction"><span class="lbl">TPA (0,4%)</span><span class="val">${fn(tpa)} FCFA</span></div>
-    <div class="bulletin-row deduction"><span class="lbl">CN (1,5%)</span><span class="val">${fn(cn)} FCFA</span></div>
-    <div class="bulletin-row deduction"><span class="lbl">Taxe apprentissage (0,4%)</span><span class="val">${fn(taxeApp)} FCFA</span></div>
-    <div class="bulletin-row total" style="border-top:1px solid var(--line);padding-top:6px"><span class="lbl">Coût total employeur</span><span class="val" style="color:var(--rust)">${fn(brut + chargesPatronales)} FCFA</span></div>
-  `;
-  return { brut, cnpsSal, ir, netAPayer, cnpsPat, tpa, cn, taxeApp, chargesPatronales };
+// Barème IR progressif Côte d'Ivoire (DGI 2024)
+function calcIR(revenuImposable) {
+  const tranches = [
+    { min: 0,        max: 600000,   taux: 0 },
+    { min: 600000,   max: 1800000,  taux: 0.10 },
+    { min: 1800000,  max: 3000000,  taux: 0.15 },
+    { min: 3000000,  max: 6000000,  taux: 0.20 },
+    { min: 6000000,  max: 12000000, taux: 0.25 },
+    { min: 12000000, max: Infinity, taux: 0.30 },
+  ];
+  let ir = 0;
+  for (const t of tranches) {
+    if (revenuImposable <= t.min) break;
+    const base = Math.min(revenuImposable, t.max) - t.min;
+    ir += base * t.taux;
+  }
+  return Math.round(ir / 12); // mensuel
 }
 
-function openPaieModal() { document.getElementById('paieModal').style.display = 'flex'; }
+function calcPaie() {
+  const brut = parseFloat(document.getElementById('paie-brut').value) || 0;
+  if (!brut) return;
+  // CNPS salarié : 7,7% plafonné à 1 647 315 FCFA/an (137 276/mois)
+  const plafondCnpsMensuel = 137276;
+  const cnpsSal = Math.min(Math.round(brut * 0.077), plafondCnpsMensuel);
+  // Charges patronales : 16% AT + 0,4% TPA + 1,5% CN
+  const chargesPatronales = Math.round(brut * 0.179);
+  // IR sur revenu imposable = brut - cnpsSal - abattement 20%
+  const revenuBrut = brut - cnpsSal;
+  const abattement = Math.round(revenuBrut * 0.20);
+  const revenuImposable = Math.round((revenuBrut - abattement) * 12); // annualisé pour le barème
+  const ir = calcIR(revenuImposable);
+  const net = brut - cnpsSal - ir;
+  document.getElementById('paie-cnps-sal').textContent = fn(cnpsSal);
+  document.getElementById('paie-charges-pat').textContent = fn(chargesPatronales);
+  document.getElementById('paie-ir').textContent = fn(ir);
+  document.getElementById('paie-net').textContent = fn(net);
+  document.getElementById('paie-cout-total').textContent = fn(brut + chargesPatronales);
+}
+
+function openPaieModal(id = null) {
+  document.getElementById('paieModal').style.display = 'flex';
+  if (!id) {
+    ['paie-nom','paie-poste','paie-mois','paie-brut'].forEach(i => {
+      const el = document.getElementById(i);
+      if (el) el.value = i === 'paie-mois' ? new Date().toISOString().slice(0,7) : '';
+    });
+    ['paie-cnps-sal','paie-charges-pat','paie-ir','paie-net','paie-cout-total'].forEach(i => {
+      const el = document.getElementById(i);
+      if (el) el.textContent = '—';
+    });
+  }
+}
 
 async function savePaie() {
   const nom = document.getElementById('paie-nom').value.trim();
   const poste = document.getElementById('paie-poste').value.trim();
-  const brut = parseFloat(document.getElementById('paie-brut').value) || 0;
   const mois = document.getElementById('paie-mois').value;
-  if (!nom || !brut || !mois) { toast('Remplissez tous les champs obligatoires', 'error'); return; }
-  const calc = calcPaie();
-  if (!calc) return;
-  const sal = { id: Date.now(), nom, poste, brut, mois, ...calc, createdAt: new Date().toISOString() };
+  const brut = parseFloat(document.getElementById('paie-brut').value) || 0;
+  if (!nom || !brut || !mois) { toast('Remplissez tous les champs', 'error'); return; }
+
+  const plafondCnpsMensuel = 137276;
+  const cnpsSal = Math.min(Math.round(brut * 0.077), plafondCnpsMensuel);
+  const chargesPatronales = Math.round(brut * 0.179);
+  const revenuBrut = brut - cnpsSal;
+  const abattement = Math.round(revenuBrut * 0.20);
+  const revenuImposable = Math.round((revenuBrut - abattement) * 12);
+  const ir = calcIR(revenuImposable);
+  const netAPayer = brut - cnpsSal - ir;
+
+  const sal = { id: Date.now(), nom, poste, mois, brut, cnpsSal, chargesPatronales, ir, netAPayer, createdAt: new Date().toISOString() };
   salaries.push(sal);
-  // Générer les 2 écritures comptables automatiquement
+
+  // Écriture OD paie
   const dateEcr = mois + '-28';
-  const piece = 'PAY-' + mois.replace('-', '');
-  const lib = `Salaire ${nom} — ${mois}`;
-  // Écriture 1 OD : constatation salaire
-  await saveEcritureToFirestore({
-    id: Date.now(), date: dateEcr, journal: 'OD', piece, libelle: lib, createdAt: new Date().toISOString(),
-    lignes: [
-      { compte: '661', libelle: 'Rémunérations directes — ' + nom, debit: sal.brut, credit: 0 },
-      { compte: '422', libelle: 'Personnel, net à payer', debit: 0, credit: sal.netAPayer },
-      { compte: '431', libelle: 'CNPS salarial 7,7%', debit: 0, credit: sal.cnpsSal },
-      { compte: '447', libelle: 'IR retenu à la source', debit: 0, credit: sal.ir },
-    ]
-  });
-  ecritures.push({ date: dateEcr, journal: 'OD', piece, libelle: lib,
-    lignes: [
-      { compte: '661', libelle: 'Rémunérations directes — ' + nom, debit: sal.brut, credit: 0 },
-      { compte: '422', libelle: 'Personnel, net à payer', debit: 0, credit: sal.netAPayer },
-      { compte: '431', libelle: 'CNPS salarial 7,7%', debit: 0, credit: sal.cnpsSal },
-      { compte: '447', libelle: 'IR retenu à la source', debit: 0, credit: sal.ir },
-    ]
-  });
-  // Persister en Firestore
+  const ecr = {
+    id: Date.now() + 1, date: dateEcr, journal: 'OD',
+    piece: 'PAIE-' + mois.replace('-',''),
+    libelle: `Paie ${nom} — ${mois}`,
+    createdAt: new Date().toISOString(),
+    lignes: sortLignesDebitAvantCredit([
+      { compte: '661', libelle: `Salaire brut ${nom}`, debit: brut, credit: 0 },
+      { compte: '422', libelle: `Salaires dus — ${nom}`, debit: 0, credit: netAPayer },
+      { compte: '431', libelle: 'CNPS salarié à payer', debit: 0, credit: cnpsSal },
+      { compte: '447', libelle: 'IR retenu à la source', debit: 0, credit: ir },
+    ])
+  };
+  await saveEcritureToFirestore(ecr);
+  ecritures.push(ecr);
+
+  // Écriture charges patronales
+  const ecrPat = {
+    id: Date.now() + 2, date: dateEcr, journal: 'OD',
+    piece: 'PAIE-PAT-' + mois.replace('-',''),
+    libelle: `Charges patronales ${nom} — ${mois}`,
+    createdAt: new Date().toISOString(),
+    lignes: sortLignesDebitAvantCredit([
+      { compte: '664', libelle: `Charges patronales ${nom}`, debit: chargesPatronales, credit: 0 },
+      { compte: '431', libelle: 'CNPS patronal à payer', debit: 0, credit: chargesPatronales },
+    ])
+  };
+  await saveEcritureToFirestore(ecrPat);
+  ecritures.push(ecrPat);
+
   if (window._fbReady && currentProfile?.id) {
     try { await window._fbAddDoc(window._fbCollection(window._db, 'profiles', currentProfile.id, 'salaries'), sal); } catch(e) {}
   }
   document.getElementById('paieModal').style.display = 'none';
-  toast(`✓ Fiche de paie ${nom} enregistrée + écriture OD générée`, 'success');
+  toast(`✓ Paie ${nom} : Net ${fn(netAPayer)} FCFA — 2 écritures OD générées`, 'success');
   renderPaie();
   updateStats();
 }
@@ -7973,8 +8135,10 @@ async function loadSalaries() {
 function renderPaie() {
   const el = document.getElementById('paieContent');
   if (!el) return;
-  if (!salaries.length) { el.innerHTML = '<div class="empty-state"><div class="icon">👤</div><p>Aucun salarié. Cliquez sur "+ Nouveau salarié".</p></div>'; return; }
-  // KPIs
+  if (!salaries.length) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">👤</div><p>Aucun salarié. Cliquez sur "+ Nouveau salarié".</p></div>';
+    return;
+  }
   const totalBrut = salaries.reduce((s,x) => s + (x.brut || 0), 0);
   const totalNet = salaries.reduce((s,x) => s + (x.netAPayer || 0), 0);
   const totalCnpsSal = salaries.reduce((s,x) => s + (x.cnpsSal || 0), 0);
@@ -7985,12 +8149,101 @@ function renderPaie() {
   document.getElementById('paie-kpi-cnps-sal').textContent = fn(totalCnpsSal);
   document.getElementById('paie-kpi-cnps-pat').textContent = fn(totalCnpsPat);
   document.getElementById('paie-kpi-ir').textContent = fn(totalIr);
-  el.innerHTML = `<div class="dtw"><table class="dt"><thead><tr><th>Nom</th><th>Poste</th><th>Mois</th><th style="text-align:right">Brut</th><th style="text-align:right">CNPS sal.</th><th style="text-align:right">IR</th><th style="text-align:right">Net à payer</th></tr></thead><tbody>${
-    salaries.map(s => `<tr><td><strong>${s.nom}</strong></td><td style="color:var(--muted)">${s.poste||'-'}</td><td style="font-family:var(--font-mono)">${s.mois||'-'}</td><td style="text-align:right;font-family:var(--font-mono)">${fn(s.brut)}</td><td style="text-align:right;font-family:var(--font-mono);color:var(--rust)">${fn(s.cnpsSal)}</td><td style="text-align:right;font-family:var(--font-mono);color:var(--muted)">${fn(s.ir)}</td><td style="text-align:right;font-family:var(--font-mono);color:var(--green);font-weight:700">${fn(s.netAPayer)}</td></tr>`).join('')
+  el.innerHTML = `<div class="dtw"><table class="dt"><thead><tr>
+    <th>Nom</th><th>Poste</th><th>Mois</th>
+    <th style="text-align:right">Brut</th><th style="text-align:right">CNPS sal.</th>
+    <th style="text-align:right">IR</th><th style="text-align:right">Net à payer</th>
+    <th></th></tr></thead><tbody>${
+    salaries.map(s => `<tr>
+      <td><strong>${s.nom}</strong></td>
+      <td style="color:var(--muted)">${s.poste||'-'}</td>
+      <td style="font-family:var(--font-mono)">${s.mois||'-'}</td>
+      <td style="text-align:right;font-family:var(--font-mono)">${fn(s.brut)}</td>
+      <td style="text-align:right;font-family:var(--font-mono);color:var(--rust)">${fn(s.cnpsSal)}</td>
+      <td style="text-align:right;font-family:var(--font-mono);color:var(--muted)">${fn(s.ir)}</td>
+      <td style="text-align:right;font-family:var(--font-mono);color:var(--green);font-weight:700">${fn(s.netAPayer)}</td>
+      <td><button class="btn btn-sm-wire" onclick="exportBulletinPDF(${s.id})">PDF</button></td>
+    </tr>`).join('')
   }</tbody></table></div>`;
 }
 
-function exportBulletinPDF() { toast('Export bulletins PDF — Module en cours de développement', 'info'); }
+function exportBulletinPDF(salId) {
+  const sal = salaries.find(s => s.id === salId);
+  if (!sal) { toast('Salarié introuvable', 'error'); return; }
+  const { jsPDF } = window.jspdf;
+  if (!jsPDF) { toast('jsPDF non chargé', 'error'); return; }
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const company = currentProfile?.company || 'Entreprise';
+  const pageW = 210;
+  // En-tête
+  doc.setFillColor(10, 11, 16);
+  doc.rect(0, 0, pageW, 28, 'F');
+  doc.setTextColor(212, 168, 83);
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
+  doc.text('BULLETIN DE PAIE', 14, 12);
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`${company} · SYSCOHADA · COMEO AI v5`, 14, 19);
+  doc.setTextColor(180, 180, 180);
+  doc.text(`Mois : ${sal.mois}`, pageW - 14, 12, { align: 'right' });
+  doc.text(`Généré le ${new Date().toLocaleDateString('fr-FR')}`, pageW - 14, 19, { align: 'right' });
+  // Info salarié
+  doc.setTextColor(10, 11, 16);
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.text(sal.nom, 14, 40);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.text(`Poste : ${sal.poste || '—'}`, 14, 47);
+  // Tableau
+  doc.autoTable({
+    startY: 56,
+    head: [['Libellé', 'Base', 'Taux', 'Montant (FCFA)']],
+    body: [
+      ['Salaire brut', fn(sal.brut) + ' FCFA', '100%', fn(sal.brut)],
+      ['CNPS salarié (retraite)', fn(sal.brut) + ' FCFA', '7,7%', '- ' + fn(sal.cnpsSal)],
+      ['Impôt sur Revenu (IR)', 'Revenu imposable', 'Barème DGI', '- ' + fn(sal.ir)],
+      ['NET À PAYER', '', '', fn(sal.netAPayer)],
+    ],
+    styles: { font: 'helvetica', fontSize: 9, cellPadding: 4 },
+    headStyles: { fillColor: [10, 11, 16], textColor: [212, 168, 83], fontStyle: 'bold' },
+    bodyStyles: { textColor: [30, 30, 30] },
+    columnStyles: { 3: { halign: 'right', fontStyle: 'bold' } },
+    margin: { left: 14, right: 14 },
+  });
+  let y = doc.lastAutoTable.finalY + 10;
+  // Charges patronales
+  doc.autoTable({
+    startY: y,
+    head: [['Charges patronales (à la charge de l\'employeur)', '', '', '']],
+    body: [
+      ['CNPS patronal + TPA + CN', fn(sal.brut) + ' FCFA', '17,9%', fn(sal.chargesPatronales)],
+      ['Coût total employeur', '', '', fn(sal.brut + sal.chargesPatronales)],
+    ],
+    styles: { font: 'helvetica', fontSize: 9, cellPadding: 3 },
+    headStyles: { fillColor: [30, 60, 50], textColor: [100, 220, 160], fontStyle: 'bold' },
+    columnStyles: { 3: { halign: 'right' } },
+    margin: { left: 14, right: 14 },
+  });
+  y = doc.lastAutoTable.finalY + 14;
+  // Signature
+  doc.setDrawColor(200, 192, 176);
+  doc.setLineWidth(0.3);
+  doc.line(14, y, pageW - 14, y);
+  doc.setFontSize(7);
+  doc.setTextColor(150);
+  doc.text('Document généré par COMEO AI v5 · SYSCOHADA · Conforme DGI Côte d\'Ivoire', 14, y + 5);
+  doc.text('Lu et approuvé — Signature employé : _______________', pageW - 14, y + 5, { align: 'right' });
+  doc.save(`BULLETIN_${sal.nom.replace(/\s+/g,'_')}_${sal.mois}.pdf`);
+  toast(`✓ Bulletin de paie ${sal.nom} exporté`, 'success');
+}
+
+window.calcPaie = calcPaie;
+window.openPaieModal = openPaieModal;
+window.savePaie = savePaie;
+window.renderPaie = renderPaie;
+window.exportBulletinPDF = exportBulletinPDF;
 window.calcPaie = calcPaie;
 window.openPaieModal = openPaieModal;
 window.savePaie = savePaie;
@@ -8107,14 +8360,200 @@ async function genererDotation(immobId) {
   renderImmobilisations();
 }
 
-function exportTableauAmortissement() { toast('Export tableau amortissement PDF — Module en cours', 'info'); }
+function exportTableauAmortissement() {
+  if (!immobilisations.length) { toast('Aucune immobilisation', 'error'); return; }
+  const { jsPDF } = window.jspdf;
+  if (!jsPDF) { toast('jsPDF non chargé', 'error'); return; }
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const company = currentProfile?.company || 'Entreprise';
+  const yr = document.getElementById('exerciceYear')?.value || new Date().getFullYear();
+  const pageW = 297;
+  doc.setFillColor(10, 11, 16);
+  doc.rect(0, 0, pageW, 24, 'F');
+  doc.setTextColor(212, 168, 83);
+  doc.setFontSize(13);
+  doc.setFont('helvetica', 'bold');
+  doc.text(`TABLEAU DES IMMOBILISATIONS ET AMORTISSEMENTS — ${company} — ${yr}`, 14, 10);
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'normal');
+  doc.text('SYSCOHADA Révisé 2017 · COMEO AI v5', 14, 17);
+  const rows = immobilisations.map(im => {
+    const vnc = (im.valeur || 0) - (im.amortCumul || 0);
+    return [
+      im.nom,
+      IMMOB_LABELS[im.cat] || im.cat,
+      im.dateAcq,
+      im.ref || '—',
+      fn(im.valeur),
+      ((im.taux||0)*100).toFixed(0) + '%',
+      im.methode || 'linéaire',
+      fn(im.dotAnnuelle),
+      fn(im.amortCumul || 0),
+      fn(vnc),
+    ];
+  });
+  const totalBrut = immobilisations.reduce((s,x) => s + (x.valeur||0), 0);
+  const totalAmort = immobilisations.reduce((s,x) => s + (x.amortCumul||0), 0);
+  const totalNet = totalBrut - totalAmort;
+  const totalDot = immobilisations.reduce((s,x) => s + (x.dotAnnuelle||0), 0);
+  doc.autoTable({
+    startY: 28,
+    head: [['Désignation', 'Catégorie', 'Date acq.', 'Référence', 'Valeur brute', 'Taux', 'Méthode', 'Dot. annuelle', 'Amort. cumulé', 'VNC']],
+    body: rows,
+    foot: [['TOTAL', '', '', '', fn(totalBrut), '', '', fn(totalDot), fn(totalAmort), fn(totalNet)]],
+    styles: { font: 'helvetica', fontSize: 7.5, cellPadding: 2.5 },
+    headStyles: { fillColor: [10, 11, 16], textColor: [212, 168, 83], fontStyle: 'bold', fontSize: 7 },
+    footStyles: { fillColor: [30, 34, 54], textColor: [212, 168, 83], fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: [250, 248, 244] },
+    columnStyles: {
+      4: { halign: 'right' }, 7: { halign: 'right', textColor: [192, 50, 20] },
+      8: { halign: 'right' }, 9: { halign: 'right', fontStyle: 'bold', textColor: [22, 160, 100] }
+    },
+    margin: { left: 14, right: 14 },
+  });
+  doc.save(`TABLEAU_AMORTISSEMENTS_${company.replace(/\s+/g,'_')}_${yr}.pdf`);
+  toast('✓ Tableau des amortissements exporté en PDF', 'success');
+}
+
+// ──────────────────────────────────────────
+// TAFIRE — Tableau de Financement des Ressources et Emplois
+// ──────────────────────────────────────────
+function renderTAFIRE() {
+  const el = document.getElementById('tafireContent');
+  if (!el) return;
+  const map = getMap();
+  const yr = document.getElementById('exerciceYear')?.value || new Date().getFullYear();
+  const company = currentProfile?.company || '—';
+
+  // Calculs TAFIRE SYSCOHADA
+  const produits = Object.entries(map).filter(([c]) => c[0]==='7').reduce((s,[,a]) => s+(a.credit-a.debit), 0);
+  const charges = Object.entries(map).filter(([c]) => c[0]==='6').reduce((s,[,a]) => s+(a.debit-a.credit), 0);
+  const dotAmort = immobilisations.reduce((s,x) => s + (x.dotAnnuelle||0), 0);
+  const resultat = produits - charges;
+  const caf = resultat + dotAmort;
+  // Immobilisations acquises = valeur brute des nouvelles immos
+  const investissements = immobilisations.filter(im => im.dateAcq && im.dateAcq.startsWith(yr)).reduce((s,x) => s+(x.valeur||0), 0);
+  // Variation BFR approximation
+  const clients411 = (map['411']?.debit||0) - (map['411']?.credit||0);
+  const fourn401 = (map['401']?.credit||0) - (map['401']?.debit||0);
+  const stocks3 = Object.entries(map).filter(([c]) => c[0]==='3').reduce((s,[,a]) => s+(a.debit-a.credit), 0);
+  const variationBFR = clients411 + stocks3 - fourn401;
+  const tresorerie5 = Object.entries(map).filter(([c]) => c[0]==='5').reduce((s,[,a]) => s+(a.debit-a.credit), 0);
+  const dettesLT = (map['16']?.credit||0) - (map['16']?.debit||0) + (map['162']?.credit||0);
+
+  el.innerHTML = `
+  <div style="padding:20px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px">
+      <h3 style="font-family:var(--font-display);font-size:18px">TAFIRE — ${company} — Exercice ${yr}</h3>
+      <button class="btn btn-gold" onclick="exportTAFIREpdf()">⎙ Exporter PDF</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+      <!-- PARTIE 1 : CAF -->
+      <div style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--r);padding:16px">
+        <div style="font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:var(--warm);margin-bottom:12px">I — Capacité d'Autofinancement (CAF)</div>
+        <div class="tafire-row"><span>Résultat net de l'exercice</span><span class="${resultat>=0?'tv':'tr'}">${fn(resultat)} FCFA</span></div>
+        <div class="tafire-row"><span>+ Dotations aux amortissements</span><span>${fn(dotAmort)} FCFA</span></div>
+        <div class="tafire-row tafire-total"><span>= CAF (MARGE BRUTE D'AUTOFINANCEMENT)</span><span class="${caf>=0?'tv':'tr'}" style="font-size:15px">${fn(caf)} FCFA</span></div>
+      </div>
+      <!-- PARTIE 2 : EMPLOIS / RESSOURCES -->
+      <div style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--r);padding:16px">
+        <div style="font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:var(--warm);margin-bottom:12px">II — Emplois et Ressources Stables</div>
+        <div class="tafire-row"><span>Investissements (acquisitions ${yr})</span><span class="tr">- ${fn(investissements)} FCFA</span></div>
+        <div class="tafire-row"><span>Ressources LT (emprunts)</span><span class="tv">+ ${fn(dettesLT)} FCFA</span></div>
+        <div class="tafire-row tafire-total"><span>= Flux investissement net</span><span class="${caf-investissements+dettesLT>=0?'tv':'tr'}">${fn(caf - investissements + dettesLT)} FCFA</span></div>
+      </div>
+      <!-- PARTIE 3 : BFR -->
+      <div style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--r);padding:16px">
+        <div style="font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:var(--warm);margin-bottom:12px">III — Variation du BFR</div>
+        <div class="tafire-row"><span>Créances clients (411)</span><span>${fn(clients411)} FCFA</span></div>
+        <div class="tafire-row"><span>Stocks (3xxx)</span><span>${fn(stocks3)} FCFA</span></div>
+        <div class="tafire-row"><span>Dettes fournisseurs (401)</span><span>${fn(fourn401)} FCFA</span></div>
+        <div class="tafire-row tafire-total"><span>= VARIATION BFR</span><span class="${variationBFR<=0?'tv':'tr'}">${fn(variationBFR)} FCFA</span></div>
+      </div>
+      <!-- PARTIE 4 : TRÉSORERIE -->
+      <div style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--r);padding:16px">
+        <div style="font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:var(--warm);margin-bottom:12px">IV — Trésorerie Nette</div>
+        <div class="tafire-row"><span>Solde trésorerie (5xxx)</span><span class="${tresorerie5>=0?'tv':'tr'}">${fn(tresorerie5)} FCFA</span></div>
+        <div class="tafire-row"><span>CAF générée</span><span class="${caf>=0?'tv':'tr'}">${fn(caf)} FCFA</span></div>
+        <div class="tafire-row tafire-total"><span>= FLUX DE TRÉSORERIE NET</span><span class="${tresorerie5>=0?'tv':'tr'}" style="font-size:15px">${fn(tresorerie5)} FCFA</span></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function exportTAFIREpdf() {
+  const { jsPDF } = window.jspdf;
+  if (!jsPDF) { toast('jsPDF non chargé', 'error'); return; }
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const company = currentProfile?.company || 'Entreprise';
+  const yr = document.getElementById('exerciceYear')?.value || new Date().getFullYear();
+  const map = getMap();
+  const pageW = 210;
+
+  const produits = Object.entries(map).filter(([c])=>c[0]==='7').reduce((s,[,a])=>s+(a.credit-a.debit),0);
+  const charges = Object.entries(map).filter(([c])=>c[0]==='6').reduce((s,[,a])=>s+(a.debit-a.credit),0);
+  const dotAmort = immobilisations.reduce((s,x)=>s+(x.dotAnnuelle||0),0);
+  const resultat = produits - charges;
+  const caf = resultat + dotAmort;
+  const clients411 = (map['411']?.debit||0) - (map['411']?.credit||0);
+  const fourn401 = (map['401']?.credit||0) - (map['401']?.debit||0);
+  const stocks3 = Object.entries(map).filter(([c])=>c[0]==='3').reduce((s,[,a])=>s+(a.debit-a.credit),0);
+  const tresorerie5 = Object.entries(map).filter(([c])=>c[0]==='5').reduce((s,[,a])=>s+(a.debit-a.credit),0);
+  const investissements = immobilisations.filter(im=>im.dateAcq&&im.dateAcq.startsWith(yr)).reduce((s,x)=>s+(x.valeur||0),0);
+  const dettesLT = (map['162']?.credit||0)-(map['162']?.debit||0);
+
+  doc.setFillColor(10,11,16); doc.rect(0,0,pageW,26,'F');
+  doc.setTextColor(212,168,83); doc.setFontSize(13); doc.setFont('helvetica','bold');
+  doc.text(`TAFIRE — ${company}`, 14, 11);
+  doc.setFontSize(8); doc.setFont('helvetica','normal');
+  doc.text(`Tableau de Financement des Ressources et Emplois · Exercice ${yr} · SYSCOHADA`, 14, 18);
+  doc.setTextColor(180,180,180); doc.setFontSize(7);
+  doc.text('Généré par COMEO AI v5 le ' + new Date().toLocaleDateString('fr-FR'), pageW-14, 18, {align:'right'});
+
+  doc.autoTable({
+    startY: 30,
+    head: [['RUBRIQUE SYSCOHADA', 'MONTANT (FCFA)']],
+    body: [
+      ['I — CAPACITÉ D\'AUTOFINANCEMENT', ''],
+      ['Résultat net de l\'exercice', fn(resultat)],
+      ['+ Dotations aux amortissements', fn(dotAmort)],
+      ['= CAF (Marge Brute d\'Autofinancement)', fn(caf)],
+      ['', ''],
+      ['II — EMPLOIS ET RESSOURCES STABLES', ''],
+      ['Investissements (acquisitions ' + yr + ')', '- ' + fn(investissements)],
+      ['Ressources LT (emprunts 162)', '+ ' + fn(dettesLT)],
+      ['= Flux de financement stable', fn(caf - investissements + dettesLT)],
+      ['', ''],
+      ['III — VARIATION DU BFR', ''],
+      ['Créances clients (411)', fn(clients411)],
+      ['Stocks (3xxx)', fn(stocks3)],
+      ['Dettes fournisseurs (401)', fn(fourn401)],
+      ['= Variation BFR', fn(clients411 + stocks3 - fourn401)],
+      ['', ''],
+      ['IV — TRÉSORERIE NETTE', ''],
+      ['Solde trésorerie clôture (5xxx)', fn(tresorerie5)],
+    ],
+    foot: [['FLUX DE TRÉSORERIE NET', fn(tresorerie5)]],
+    styles: { font: 'helvetica', fontSize: 9, cellPadding: 3 },
+    headStyles: { fillColor: [10,11,16], textColor: [212,168,83], fontStyle: 'bold' },
+    footStyles: { fillColor: [10,11,16], textColor: [212,168,83], fontStyle: 'bold', fontSize: 11 },
+    alternateRowStyles: { fillColor: [250,248,244] },
+    columnStyles: { 1: { halign: 'right', fontStyle: 'bold' } },
+    margin: { left: 14, right: 14 },
+  });
+  doc.save(`TAFIRE_${company.replace(/\s+/g,'_')}_${yr}.pdf`);
+  toast('✓ TAFIRE exporté en PDF', 'success');
+}
+
+window.renderTAFIRE = renderTAFIRE;
+window.exportTAFIREpdf = exportTAFIREpdf;
+window.exportTableauAmortissement = exportTableauAmortissement;
 window.openImmobModal = openImmobModal;
 window.saveImmob = saveImmob;
 window.renderImmobilisations = renderImmobilisations;
 window.genererDotation = genererDotation;
 window.calcAmortissement = calcAmortissement;
-window.updateImmobCompte = updateImmobCompte;
-window.exportTableauAmortissement = exportTableauAmortissement;
+window.updateImmobCompte = updateImmobCompute;
 
 // ══════════════════════════════════════════
 // MODULE STOCKS
