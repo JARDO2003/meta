@@ -1650,3 +1650,14 @@ body { font-family:var(--font-body); background:var(--paper); color:var(--ink); 
   transition:.2s; margin-bottom:16px;
 }
 .import-drop-zone:hover { border-color:var(--warm); background:var(--warm-glow); }
+/* ── TAFIRE ── */
+.tafire-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13px;
+}
+.tafire-row .tv { color: var(--green); font-weight: 700; }
+.tafire-row .tr { color: var(--rust); font-weight: 700; }
+.tafire-total {
+  margin-top: 8px; padding-top: 10px; border-top: 2px solid var(--warm) !important;
+  font-weight: 700; font-size: 14px;
+}
