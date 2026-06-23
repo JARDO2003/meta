@@ -8531,7 +8531,7 @@ window.saveImmob = saveImmob;
 window.renderImmobilisations = renderImmobilisations;
 window.genererDotation = genererDotation;
 window.calcAmortissement = calcAmortissement;
-window.updateImmobCompte = updateImmobCompute;
+window.updateImmobCompte = updateImmobCompte;
 
 // ══════════════════════════════════════════
 // MODULE STOCKS
