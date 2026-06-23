@@ -213,134 +213,6 @@ function isActionQuery(queryLow) {
   return /crée|cree|facture|montre|affiche|modif|ouvre|ouvrir|supprim|enregistr|saisir|journal|bilan/i.test(queryLow);
 }
 
-// ── Recherche de reponse similaire dans le cache Firestore ──
-async function findSimilarInCache(query) {
-  try {
-    const snap = await getDocs(collection(robotDb, 'robot_cache'));
-    if (snap.empty) return null;
-    const queryWords = query
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, '')
-      .split(/\s+/)
-      .filter((w) => w.length > 3);
-    if (queryWords.length === 0) return null;
-    let bestMatch = null;
-    let bestScore = 0;
-    snap.forEach((docSnap) => {
-      const key = docSnap.id;
-      const keyWords = key
-        .replace(/^v\d+_/, '')
-        .replace(/_/g, ' ')
-        .split(/\s+/)
-        .filter((w) => w.length > 3);
-      const common = keyWords.filter((kw) =>
-        queryWords.some((qw) => kw.includes(qw) || qw.includes(kw)),
-      );
-      const score = common.length / Math.max(queryWords.length, keyWords.length);
-      if (score > bestScore && score >= 0.3) {
-        bestScore = score;
-        bestMatch = docSnap.data().answer;
-      }
-    });
-    if (bestMatch) {
-      console.log(`[COMEO Similarite] Match a ${Math.round(bestScore * 100)}% — reponse trouvee`);
-    }
-    return bestMatch;
-  } catch (e) {
-    return null;
-  }
-}
-
-// ══════════════════════════════════════════
-// FILE D'ATTENTE GROQ GLOBALE — Traitement sequentiel multi-utilisateurs
-// ══════════════════════════════════════════
-const groqRequestQueue = [];
-let groqQueueProcessing = false;
-async function processGroqQueue() {
-  if (groqQueueProcessing) return;
-  groqQueueProcessing = true;
-  while (groqRequestQueue.length > 0) {
-    const { execute, resolve, reject } = groqRequestQueue.shift();
-    try {
-      const result = await execute();
-      resolve(result);
-    } catch (err) {
-      reject(err);
-    }
-  }
-  groqQueueProcessing = false;
-}
-function enqueueGroqCall(executeFn) {
-  return new Promise((resolve, reject) => {
-    groqRequestQueue.push({ execute: executeFn, resolve, reject });
-    processGroqQueue();
-  });
-}
-
-// ── Appel Groq sequentiel (file d'attente globale) ──
-async function callGroqQueued(messages, maxTokens, temperature, topP, isRobot = false) {
-  return enqueueGroqCall(async () => {
-    let data = null;
-    let lastError = null;
-    const prefix = isRobot ? '[COMEO Robot]' : '[COMEO]';
-    if (GROQ_API_KEYS.length > 0) {
-      const totalAttempts = GROQ_API_KEYS.length * GROQ_MODELS.length;
-      const maxAttempts = isRobot ? Math.min(GROQ_API_KEYS.length * 2, 6) : Math.min(totalAttempts, 6);
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        const keyToUse = GROQ_API_KEYS[(groqKeyIdx + attempt) % GROQ_API_KEYS.length];
-        const modelToUse =
-          GROQ_MODELS[(groqModelIdx + (isRobot ? 0 : Math.floor(attempt / GROQ_API_KEYS.length))) % GROQ_MODELS.length];
-        try {
-          const delay = isRobot ? 600 * attempt : 800 * attempt;
-          if (attempt > 0) await new Promise((r) => setTimeout(r, delay));
-          const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${keyToUse}`,
-            },
-            body: JSON.stringify({
-              model: modelToUse,
-              max_tokens: maxTokens,
-              temperature: temperature,
-              top_p: topP,
-              messages: messages,
-            }),
-          });
-          if (response.ok) {
-            groqKeyIdx = (groqKeyIdx + attempt) % GROQ_API_KEYS.length;
-            if (!isRobot) {
-              groqModelIdx = (groqModelIdx + Math.floor(attempt / GROQ_API_KEYS.length)) % GROQ_MODELS.length;
-            }
-            data = await response.json();
-            console.log(
-              `${prefix} ✅ Groq OK — cle ${groqKeyIdx + 1}/${GROQ_API_KEYS.length}${isRobot ? '' : ', modele: ' + modelToUse}`,
-            );
-            break;
-          }
-          const errData = await response.json().catch(() => ({}));
-          lastError = errData.error?.message || 'Erreur ' + response.status;
-          if (response.status === 429) {
-            console.warn(`${prefix} Groq cle ${attempt + 1} saturee (429) → rotation`);
-            continue;
-          }
-          if (response.status === 401 || response.status === 403) {
-            console.warn(`${prefix} Groq cle ${attempt + 1} invalide (${response.status})`);
-            break;
-          }
-        } catch (e) {
-          lastError = e.message;
-          if (attempt > 0) await new Promise((r) => setTimeout(r, 600));
-        }
-      }
-    }
-    if (!data) {
-      throw new Error(lastError || 'Tous les providers Groq sont indisponibles');
-    }
-    return data;
-  });
-}
-
 // ══════════════════════════════════════════
 // ABONNEMENT PREMIUM — Wave · Essai 12h
 // ══════════════════════════════════════════
@@ -4411,7 +4283,7 @@ function buildAIContext() {
 
 async function sendToAI(context) {
   if (isAILoading) return;
-  if (!requireSubscriptionAccess()) return;
+  // Accès IA libre — pas de vérification d'abonnement requise
 
   if (!isAiServiceReady()) {
     appendMsg(context, 'ai', '⏳ ' + getAiUnavailableMessage());
@@ -4466,19 +4338,49 @@ async function sendToAI(context) {
       }
     }
 
-    // ══ ÉTAPE 1 : GROQ — file d'attente sequentielle ══
-    try {
-      data = await callGroqQueued(
-        [{ role: 'system', content: systemPrompt }, ...conversationHistory],
-        6000, 0.02, 0.95, false,
-      );
-    } catch (groqErr) {
-      lastError = groqErr.message;
-      console.warn('[COMEO] Groq echoue, recherche similarite...', groqErr.message);
-      const similar = await findSimilarInCache(msg);
-      if (similar) {
-        console.log('[COMEO] ✅ Reponse similaire trouvee dans le cache');
-        data = { choices: [{ message: { content: similar } }] };
+    // ══ ÉTAPE 1 : GROQ — rotation automatique sur toutes les clés ══
+    if (GROQ_API_KEYS.length > 0) {
+      const totalAttempts = GROQ_API_KEYS.length * GROQ_MODELS.length;
+      for (let attempt = 0; attempt < Math.min(totalAttempts, 6); attempt++) {
+        const keyToUse = GROQ_API_KEYS[(groqKeyIdx + attempt) % GROQ_API_KEYS.length];
+        const modelToUse = GROQ_MODELS[(groqModelIdx + Math.floor(attempt / GROQ_API_KEYS.length)) % GROQ_MODELS.length];
+        try {
+          if (attempt > 0) await new Promise((r) => setTimeout(r, 800 * attempt));
+          const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${keyToUse}`,
+            },
+            body: JSON.stringify({
+              model: modelToUse,
+              max_tokens: 6000,
+              temperature: 0.02,
+              top_p: 0.95,
+              messages: [{ role: 'system', content: systemPrompt }, ...conversationHistory],
+            }),
+          });
+          if (response.ok) {
+            groqKeyIdx = (groqKeyIdx + attempt) % GROQ_API_KEYS.length;
+            groqModelIdx = (groqModelIdx + Math.floor(attempt / GROQ_API_KEYS.length)) % GROQ_MODELS.length;
+            data = await response.json();
+            console.log(`[COMEO] ✅ Groq OK — clé ${groqKeyIdx + 1}/${GROQ_API_KEYS.length}, modèle: ${modelToUse}`);
+            break;
+          }
+          const errData = await response.json().catch(() => ({}));
+          lastError = errData.error?.message || 'Erreur ' + response.status;
+          if (response.status === 429) {
+            console.warn(`[COMEO] Groq clé ${attempt + 1} saturée (429) → rotation vers clé suivante`);
+            continue;
+          }
+          if (response.status === 401 || response.status === 403) {
+            console.warn(`[COMEO] Groq clé ${attempt + 1} invalide (${response.status})`);
+            break;
+          }
+        } catch (e) {
+          lastError = e.message;
+          if (attempt > 0) await new Promise((r) => setTimeout(r, 600));
+        }
       }
     }
 
@@ -6305,7 +6207,7 @@ async function handleRobotQuery(query) {
     setRobotStatus('online');
     return;
   }
-  if (!requireSubscriptionAccess()) return;
+  // Accès IA libre — pas de vérification d'abonnement requise
 
   setRobotStatus('thinking');
   setRobotBubble('<span class="robot-thinking">…</span>');
@@ -6566,20 +6468,32 @@ ANALYSE AUTOMATIQUE :
       }
     }
 
-    // ══ ÉTAPE 1 : GROQ — file d'attente sequentielle ══
+    // ══ ÉTAPE 1 : GROQ — rotation sur toutes les clés ══
     let data = null;
-    try {
-      data = await callGroqQueued(
-        [{ role: 'system', content: systemRobot }, ...robotConvHistory],
-        420, 0.62, 0.92, true,
-      );
-    } catch (groqErr) {
-      console.warn('[COMEO Robot] Groq echoue, recherche similarite...', groqErr.message);
-      const similar = await findSimilarInCache(query);
-      if (similar) {
-        console.log('[COMEO Robot] ✅ Reponse similaire trouvee dans le cache');
-        data = { choices: [{ message: { content: similar } }] };
-      }
+    for (let i = 0; i < Math.min(GROQ_API_KEYS.length * 2, 6); i++) {
+      const key = GROQ_API_KEYS[(groqKeyIdx + i) % GROQ_API_KEYS.length];
+      const model = GROQ_MODELS[groqModelIdx % GROQ_MODELS.length];
+      try {
+        if (i > 0) await new Promise((r) => setTimeout(r, 600 * i));
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
+          body: JSON.stringify({
+            model,
+            max_tokens: 420,
+            temperature: 0.62,
+            top_p: 0.92,
+            messages: [{ role: 'system', content: systemRobot }, ...robotConvHistory],
+          }),
+        });
+        if (response.ok) {
+          groqKeyIdx = (groqKeyIdx + i) % GROQ_API_KEYS.length;
+          data = await response.json();
+          console.log(`[COMEO Robot] ✅ Groq OK — clé ${groqKeyIdx + 1}`);
+          break;
+        }
+        if (response.status === 429) { console.warn(`[COMEO Robot] Groq clé ${i+1} saturée → rotation`); continue; }
+      } catch (e) { continue; }
     }
 
     // ══ ÉTAPE 2 : MISTRAL fallback ══
