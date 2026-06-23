@@ -8007,7 +8007,7 @@ function calcIR(netImposable) {
 // ══════════════════════════════════════════
 // MODULE PAIE v2 — Barème IR ivoirien complet
 // ══════════════════════════════════════════
-let salaries = [];
+
 
 // Barème IR progressif Côte d'Ivoire (DGI 2024)
 function calcIR(revenuImposable) {
