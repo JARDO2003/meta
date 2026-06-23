@@ -252,7 +252,10 @@
       <div class="stat-row"><span class="lbl">Équilibre</span><span class="val g" id="s-equil">✓</span></div>
     </div>
   </div>
-
+<div class="nav-item" onclick="navigate('tafire')">
+  <svg viewBox="0 0 24 24"><path d="M3 3h18v2H3V3zm0 4h12v2H3V7zm0 4h18v2H3v-2zm0 4h12v2H3v-2zm0 4h18v2H3v-2z"/></svg>
+  TAFIRE
+</div>
 <!-- ═══════════════════ FACTURES ═══════════════════ -->
 <div class="view" id="view-factures">
   <div class="ph">
@@ -952,7 +955,19 @@
         <div class="empty-state"><div class="icon">📑</div><p>Sélectionnez une déclaration à générer.</p></div>
       </div>
     </div>
-
+<!-- ═══ VUE TAFIRE ═══ -->
+<div class="view" id="view-tafire">
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="card-title">TAFIRE</div>
+        <div class="card-sub">Tableau de Financement des Ressources et Emplois · SYSCOHADA</div>
+      </div>
+      <button class="btn btn-gold" onclick="exportTAFIREpdf()">⎙ Exporter PDF</button>
+    </div>
+    <div id="tafireContent"><div class="empty-state"><div class="icon">📊</div><p>Chargement du TAFIRE…</p></div></div>
+  </div>
+</div>
     <!-- ═══════════════════ CLÔTURE D'EXERCICE ═══════════════════ -->
     <div class="view" id="view-exercices">
       <div class="ph">
@@ -1021,6 +1036,10 @@
       <strong style="font-family:var(--font-display)">Détail du bulletin</strong>
       <div style="margin-top:10px;display:grid;gap:6px" id="paie-detail-grid"></div>
     </div>
+    <div class="af-field">
+  <label class="af-label" style="color:var(--muted)">Coût total employeur</label>
+  <div id="paie-cout-total" style="font-family:var(--font-mono);font-size:18px;font-weight:700;color:var(--rust)">—</div>
+</div>
     <div class="modal-actions" style="margin-top:16px">
       <button class="btn-modal-cancel" onclick="document.getElementById('paieModal').style.display='none'">Annuler</button>
       <button class="btn-modal-ok" onclick="savePaie()">✓ Enregistrer & Générer écriture</button>
