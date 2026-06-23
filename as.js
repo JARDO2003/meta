@@ -9828,7 +9828,7 @@ async function rejoindreCollab() {
       await window._fbSetDoc(window._fbDoc(window._db, 'collab_sessions', ownerUid), { collaborateurs: updatedCollabs }, { merge: true });
     }
 
-    // Passer en mode collaborateur — charger les données du propriétaire
+  // Passer en mode collaborateur — charger les données du propriétaire
     document.getElementById('joinCollabModal').style.display = 'none';
     isCollabMode = true;
     collabOwnerUid = ownerUid;
@@ -9841,29 +9841,56 @@ async function rejoindreCollab() {
     // Écoute révocation temps réel
     ecouterRevocationCollab(ownerUid);
 
+    // ✅ NOUVEAU — Écoute des appels entrants du propriétaire
+    ecouterAppelEntrant(ownerUid);
+
   } catch(e) {
     errEl.textContent = 'Erreur : ' + e.message;
   }
 }
 
 async function chargerDonneesProprietaire(ownerUid) {
-  // Recharge les données (écritures, factures, etc.) depuis le profil du propriétaire
-  // Toutes les fonctions existantes utilisent currentProfile.id → on redirige temporairement
   const realUid = currentProfile.id;
+  // On redirige currentProfile.id vers le propriétaire pour que toutes
+  // les fonctions de chargement lisent depuis son profil Firestore
   currentProfile = { ...currentProfile, id: ownerUid, _collabMode: true, _realUid: realUid };
+
+  // Mettre à jour l'en-tête avec le nom du propriétaire
+  try {
+    const ownerSnap = await window._fbGetDoc(window._fbDoc(window._db, 'profiles', ownerUid));
+    if (ownerSnap.exists()) {
+      const ownerData = ownerSnap.data();
+      currentProfile = { ...currentProfile, company: ownerData.company, exercice: ownerData.exercice };
+      const topName = document.getElementById('topCompanyName');
+      if (topName) topName.textContent = (ownerData.company || 'Espace') + ' [Collaborateur]';
+      const exYear = document.getElementById('exerciceYear');
+      if (exYear) exYear.value = ownerData.exercice || '2024';
+    }
+  } catch(e) {}
+
   toast('🔄 Chargement des données de l\'espace...', 'info');
-  // Déclencher le rechargement global
-  if (typeof loadAllData === 'function') await loadAllData();
-  else {
-    // Fallback : recharger modules individuellement
-    if (typeof loadEcritures === 'function') await loadEcritures();
-    if (typeof loadFactures === 'function') await loadFactures();
-    if (typeof loadCollaborateurs === 'function') await loadCollaborateurs();
-  }
+
+  // Charger tous les modules avec les vrais noms de fonctions
+  await Promise.all([
+    loadEcrituresFromFirestore(),
+    loadClientsFromFirestore(),
+    loadFournisseursFromFirestore(),
+    loadFacturesFromFirestore(),
+    loadSalaries(),
+    loadImmobilisations(),
+    loadStocks(),
+    loadBudgets(),
+  ]);
+  await Promise.all([
+    loadAnalytique(),
+    loadSocietes(),
+    loadEffets(),
+  ]);
+
   updateStats();
+  renderPlanComptable();
   toast('✓ Espace collaborateur chargé !', 'success');
 }
-
 function ecouterRevocationCollab(ownerUid) {
   const { onSnapshot, doc } = window._firebaseFirestore || {};
   if (!onSnapshot) return;
@@ -9895,6 +9922,23 @@ const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    // Serveurs TURN publics gratuits (relais NAT/firewall)
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
   ]
 };
 
