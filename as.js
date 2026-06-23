@@ -183,6 +183,40 @@ function isActionQuery(queryLow) {
 }
 
 // ══════════════════════════════════════════
+// ══════════════════════════════════════════
+// CONFIGURATION SERVEUR — Clés API en dur (mode local)
+// Généré le 23/06/2026 19:30:55
+// ══════════════════════════════════════════
+
+GROQ_API_KEYS = [
+    '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'
+  ];
+
+GROQ_MODELS = [
+    'llama-3.3-70b-versatile',
+    'qwen/qwen3-32b',
+    'meta-llama/llama-4-scout-17b-16e-instruct'
+  ];
+
+MISTRAL_API_KEYS = [];
+
+MISTRAL_MODELS = [
+    'mistral-small-latest',
+    'open-mistral-7b'
+  ];
+
+// ── Supprimer ou commenter la fonction loadServerConfig() ──
+// async function loadServerConfig() { ... }  ← REMPLACER PAR :
+
+function loadServerConfig() {
+  serverConfigLoaded = true;
+  aiServiceAvailable = GROQ_API_KEYS.length > 0 || MISTRAL_API_KEYS.length > 0;
+  updateServiceAvailabilityUI();
+  console.log(
+    `[COMEO] Config locale — ${GROQ_API_KEYS.length} clé(s) Groq, ` +
+    `${MISTRAL_API_KEYS.length} clé(s) Mistral`
+  );
+}
 // ABONNEMENT PREMIUM — Wave · Essai 12h
 // ══════════════════════════════════════════
 const TRIAL_DURATION_MS = 12 * 60 * 60 * 1000;
