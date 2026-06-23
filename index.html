@@ -242,6 +242,13 @@
   <div class="nav-item" onclick="navigate('exercices');closeMobileSidebar()"><span class="nav-icon">🔄</span> Clôture exercice</div>
 </div>
 <div class="sb-section">
+  <div class="sb-title">Avancé</div>
+  <div class="nav-item" onclick="navigate('analytique');closeMobileSidebar()"><span class="nav-icon">📊</span> Comptabilité analytique</div>
+  <div class="nav-item" onclick="navigate('effets');closeMobileSidebar()"><span class="nav-icon">📄</span> Effets de commerce</div>
+  <div class="nav-item" onclick="navigate('societes');closeMobileSidebar()"><span class="nav-icon">🏢</span> Multi-sociétés</div>
+  <div class="nav-item" onclick="navigate('utilisateurs');closeMobileSidebar()"><span class="nav-icon">👥</span> Utilisateurs & Droits</div>
+</div>
+<div class="sb-section">
   <div class="sb-title">Référentiel</div>
   <div class="nav-item" onclick="navigate('plancomptable');closeMobileSidebar()"><span class="nav-icon">⊙</span> Plan SYSCOHADA</div>
 </div>
@@ -1000,6 +1007,86 @@
       </div>
     </div>
 
+
+    <!-- ═══════════════════ ANALYTIQUE ═══════════════════ -->
+    <div class="view" id="view-analytique">
+      <div class="ph">
+        <div><h1>Comptabilité analytique</h1><p>Centres de coût · Axes analytiques · Ventilation par projet</p></div>
+        <div class="ph-actions">
+          <button class="btn btn-sm-wire" onclick="exportAnalytiquePDF()">↓ Rapport PDF</button>
+          <button class="btn btn-ink" onclick="openCentreModal()">+ Nouveau centre</button>
+        </div>
+      </div>
+      <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+        <div class="kpi"><div class="kpi-label">Centres actifs</div><div class="kpi-value" id="analyt-kpi-centres" style="color:var(--warm)">0</div><div class="kpi-sub">créés</div></div>
+        <div class="kpi"><div class="kpi-label">Imputations</div><div class="kpi-value" id="analyt-kpi-imput" style="color:var(--blue)">0</div><div class="kpi-sub">lignes</div></div>
+        <div class="kpi"><div class="kpi-label">Exploitation</div><div class="kpi-value" id="analyt-kpi-exploit" style="color:var(--rust)">0</div><div class="kpi-sub">FCFA charges</div></div>
+        <div class="kpi"><div class="kpi-label">Projets</div><div class="kpi-value" id="analyt-kpi-projet" style="color:var(--teal)">0</div><div class="kpi-sub">FCFA charges</div></div>
+      </div>
+      <div class="card" id="analytiqueContent">
+        <div class="empty-state"><div class="icon">📊</div><p>Aucun centre de coût. Créez-en un pour commencer.</p></div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════ MULTI-SOCIETES ═══════════════════ -->
+    <div class="view" id="view-societes">
+      <div class="ph">
+        <div><h1>Gestion des sociétés</h1><p>Multi-entreprises · Multi-exercices · Basculement rapide</p></div>
+        <div class="ph-actions">
+          <button class="btn btn-ink" onclick="openSocieteModal()">+ Nouvelle société</button>
+        </div>
+      </div>
+      <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+        <div class="kpi"><div class="kpi-label">Sociétés</div><div class="kpi-value" id="soc-kpi-total" style="color:var(--warm)">0</div><div class="kpi-sub">enregistrées</div></div>
+        <div class="kpi"><div class="kpi-label">Active</div><div class="kpi-value" id="soc-kpi-active" style="color:var(--green);font-size:13px">—</div><div class="kpi-sub">société</div></div>
+        <div class="kpi"><div class="kpi-label">Exercices</div><div class="kpi-value" id="soc-kpi-exercices" style="color:var(--blue)">0</div><div class="kpi-sub">total</div></div>
+        <div class="kpi"><div class="kpi-label">Année active</div><div class="kpi-value" id="soc-kpi-annee" style="color:var(--warm)">—</div><div class="kpi-sub">exercice</div></div>
+      </div>
+      <div id="societesContent">
+        <div class="empty-state"><div class="icon">🏢</div><p>Chargement des sociétés…</p></div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════ UTILISATEURS & AUDIT ═══════════════════ -->
+    <div class="view" id="view-utilisateurs">
+      <div class="ph">
+        <div><h1>Utilisateurs & Droits</h1><p>Gestion des accès · Rôles · Journal d'audit complet</p></div>
+        <div class="ph-actions">
+          <button class="btn btn-sm-wire" onclick="exportAuditPDF()">↓ Audit PDF</button>
+          <button class="btn btn-ink" onclick="openCollabModal()">+ Inviter collaborateur</button>
+        </div>
+      </div>
+      <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+        <div class="kpi"><div class="kpi-label">Utilisateurs</div><div class="kpi-value" id="users-kpi-total" style="color:var(--warm)">1</div><div class="kpi-sub">total</div></div>
+        <div class="kpi"><div class="kpi-label">Actifs</div><div class="kpi-value" id="users-kpi-actifs" style="color:var(--green)">1</div><div class="kpi-sub">connectés</div></div>
+        <div class="kpi"><div class="kpi-label">En attente</div><div class="kpi-value" id="users-kpi-invites" style="color:var(--warm)">0</div><div class="kpi-sub">invitations</div></div>
+        <div class="kpi"><div class="kpi-label">Logs audit</div><div class="kpi-value" id="users-kpi-logs" style="color:var(--blue)">0</div><div class="kpi-sub">actions</div></div>
+      </div>
+      <div id="utilisateursContent">
+        <div class="empty-state"><div class="icon">👥</div><p>Chargement de l'équipe…</p></div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════ EFFETS DE COMMERCE ═══════════════════ -->
+    <div class="view" id="view-effets">
+      <div class="ph">
+        <div><h1>Effets de commerce</h1><p>LCR · Billets à ordre · Escompte · Suivi des échéances</p></div>
+        <div class="ph-actions">
+          <button class="btn btn-sm-wire" onclick="exportEffetsPDF()">↓ Portefeuille PDF</button>
+          <button class="btn btn-ink" onclick="openEffetModal()">+ Nouvel effet</button>
+        </div>
+      </div>
+      <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+        <div class="kpi"><div class="kpi-label">En portefeuille</div><div class="kpi-value" id="effets-kpi-portefeuille" style="color:var(--blue)">0</div><div class="kpi-sub">FCFA</div></div>
+        <div class="kpi"><div class="kpi-label">À l'escompte</div><div class="kpi-value" id="effets-kpi-escompte" style="color:var(--warm)">0</div><div class="kpi-sub">FCFA</div></div>
+        <div class="kpi"><div class="kpi-label">Impayés</div><div class="kpi-value" id="effets-kpi-impayes" style="color:var(--rust)">0</div><div class="kpi-sub">FCFA</div></div>
+        <div class="kpi"><div class="kpi-label">Échéances &lt;7j</div><div class="kpi-value" id="effets-kpi-echeoir" style="color:var(--warm)">0</div><div class="kpi-sub">à encaisser ⚡</div></div>
+      </div>
+      <div class="card" id="effetsContent">
+        <div class="empty-state"><div class="icon">📄</div><p>Aucun effet de commerce enregistré.</p></div>
+      </div>
+    </div>
+
     <!-- PLAN COMPTABLE -->
     <div class="view" id="view-plancomptable">
       <div class="ph"><div><h1>Plan Comptable SYSCOHADA</h1><p>Révisé 2023</p></div></div>
@@ -1124,6 +1211,143 @@
     <div class="modal-actions" style="margin-top:14px">
       <button class="btn-modal-cancel" onclick="document.getElementById('budgetModal').style.display='none'">Annuler</button>
       <button class="btn-modal-ok" onclick="saveBudget()">✓ Enregistrer budget</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL CENTRE DE COÛT ═══ -->
+<div id="centreModal" class="modal-overlay" style="display:none">
+  <div class="modal-box" style="width:520px">
+    <div class="modal-title">📊 Centre de coût / Axe analytique</div>
+    <input type="hidden" id="centre-id">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px">
+      <div><label class="af-label" style="color:var(--muted)">Code</label><input class="af-input" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" id="centre-code" placeholder="ex: CC-VENTE"></div>
+      <div><label class="af-label" style="color:var(--muted)">Type</label>
+        <select id="centre-type" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%">
+          <option value="exploitation">Exploitation</option>
+          <option value="support">Support / Administration</option>
+          <option value="projet">Projet</option>
+        </select>
+      </div>
+      <div style="grid-column:1/-1"><label class="af-label" style="color:var(--muted)">Libellé</label><input class="af-input" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" id="centre-libelle" placeholder="ex: Centre commercial Abidjan"></div>
+      <div style="grid-column:1/-1"><label class="af-label" style="color:var(--muted)">Responsable</label><input class="af-input" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" id="centre-responsable" placeholder="Nom du responsable (optionnel)"></div>
+    </div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn-modal-cancel" onclick="document.getElementById('centreModal').style.display='none'">Annuler</button>
+      <button class="btn-modal-ok" onclick="saveCentre()">✓ Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL IMPUTATION ANALYTIQUE ═══ -->
+<div id="imputationModal" class="modal-overlay" style="display:none">
+  <div class="modal-box" style="width:480px">
+    <div class="modal-title">📊 Imputer à un centre de coût</div>
+    <input type="hidden" id="imput-ecr-id">
+    <input type="hidden" id="imput-ligne-idx">
+    <input type="hidden" id="imput-montant">
+    <input type="hidden" id="imput-sens">
+    <div style="display:grid;gap:12px;margin-top:14px">
+      <div><label class="af-label" style="color:var(--muted)">Centre de coût</label>
+        <select id="imput-centre" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%"></select>
+      </div>
+      <div><label class="af-label" style="color:var(--muted)">% à imputer</label>
+        <input type="range" id="imput-pct" min="1" max="100" value="100" oninput="updateImputMontant()" style="width:100%;margin-top:6px">
+        <div style="text-align:center;font-family:var(--font-mono);margin-top:6px;font-weight:700" id="imput-montant-calc">—</div>
+      </div>
+    </div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn-modal-cancel" onclick="document.getElementById('imputationModal').style.display='none'">Annuler</button>
+      <button class="btn-modal-ok" onclick="saveImputation()">✓ Imputer</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL SOCIÉTÉ ═══ -->
+<div id="societeModal" class="modal-overlay" style="display:none">
+  <div class="modal-box" style="width:580px">
+    <div class="modal-title">🏢 Société</div>
+    <input type="hidden" id="soc-id">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px">
+      <div style="grid-column:1/-1"><label class="af-label" style="color:var(--muted)">Raison sociale</label><input class="af-input" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" id="soc-nom" placeholder="ex: SOTRA SARL"></div>
+      <div><label class="af-label" style="color:var(--muted)">Forme juridique</label>
+        <select id="soc-forme" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%">
+          <option value="SARL">SARL</option><option value="SA">SA</option>
+          <option value="SAS">SAS</option><option value="SNC">SNC</option>
+          <option value="EI">Entreprise individuelle</option><option value="Autre">Autre</option>
+        </select>
+      </div>
+      <div><label class="af-label" style="color:var(--muted)">Exercice actif</label><input type="number" id="soc-exercice" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" placeholder="2024"></div>
+      <div><label class="af-label" style="color:var(--muted)">RCCM</label><input id="soc-rccm" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" placeholder="CI-ABJ-2024-B-12345"></div>
+      <div><label class="af-label" style="color:var(--muted)">NIF</label><input id="soc-nif" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" placeholder="Numéro d'identification fiscale"></div>
+      <div style="grid-column:1/-1"><label class="af-label" style="color:var(--muted)">Adresse</label><input id="soc-adresse" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" placeholder="Adresse complète"></div>
+    </div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn-modal-cancel" onclick="document.getElementById('societeModal').style.display='none'">Annuler</button>
+      <button class="btn-modal-ok" onclick="saveSociete()">✓ Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL COLLABORATEUR ═══ -->
+<div id="collabModal" class="modal-overlay" style="display:none">
+  <div class="modal-box" style="width:500px">
+    <div class="modal-title">👥 Inviter un collaborateur</div>
+    <div style="display:grid;gap:12px;margin-top:14px">
+      <div><label class="af-label" style="color:var(--muted)">Nom complet</label><input class="af-input" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" id="collab-nom" placeholder="ex: KOUASSI Marie"></div>
+      <div><label class="af-label" style="color:var(--muted)">Adresse email</label><input type="email" class="af-input" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" id="collab-email" placeholder="email@entreprise.ci"></div>
+      <div><label class="af-label" style="color:var(--muted)">Rôle</label>
+        <select id="collab-role" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%">
+          <option value="comptable">Comptable — Accès complet saisie & états</option>
+          <option value="gestionnaire">Gestionnaire — Facturation & stocks uniquement</option>
+          <option value="lecteur">Lecture seule — Consultation uniquement</option>
+          <option value="admin">Administrateur — Accès total</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn-modal-cancel" onclick="document.getElementById('collabModal').style.display='none'">Annuler</button>
+      <button class="btn-modal-ok" onclick="saveCollaborateur()">✓ Envoyer invitation</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL EFFET DE COMMERCE ═══ -->
+<div id="effetModal" class="modal-overlay" style="display:none">
+  <div class="modal-box" style="width:600px">
+    <div class="modal-title">📄 Effet de commerce</div>
+    <input type="hidden" id="effet-id">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px">
+      <div><label class="af-label" style="color:var(--muted)">Type d'effet</label>
+        <select id="effet-type" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%">
+          <option value="lcr">LCR — Lettre de change relevé (reçue)</option>
+          <option value="billet_recu">Billet à ordre (reçu de client)</option>
+          <option value="billet_emis">Billet à ordre (émis à fournisseur)</option>
+        </select>
+      </div>
+      <div><label class="af-label" style="color:var(--muted)">Statut</label>
+        <select id="effet-statut" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%">
+          <option value="en_portefeuille">En portefeuille</option>
+          <option value="remis_escompte">Remis à l'escompte</option>
+          <option value="encaisse">Encaissé</option>
+          <option value="impaye">Impayé</option>
+          <option value="endosse">Endossé</option>
+        </select>
+      </div>
+      <div style="grid-column:1/-1"><label class="af-label" style="color:var(--muted)">Tiré / Souscripteur (nom du client ou fournisseur)</label>
+        <input class="af-input" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" id="effet-tire" placeholder="ex: CFAO MOTORS CI"></div>
+      <div><label class="af-label" style="color:var(--muted)">Montant (FCFA)</label><input type="number" id="effet-montant" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" placeholder="0"></div>
+      <div><label class="af-label" style="color:var(--muted)">Référence</label><input id="effet-ref" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" placeholder="N° de l'effet (optionnel)"></div>
+      <div><label class="af-label" style="color:var(--muted)">Date de création</label><input type="date" id="effet-date-creation" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%"></div>
+      <div><label class="af-label" style="color:var(--muted)">Date d'échéance</label><input type="date" id="effet-date-echeance" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%"></div>
+      <div style="grid-column:1/-1"><label class="af-label" style="color:var(--muted)">Banque domiciliataire</label><input id="effet-banque" style="background:var(--surface2);border:1.5px solid var(--line);border-radius:var(--rs);color:var(--ink);padding:8px 10px;font-size:13px;width:100%" placeholder="ex: BICICI, SGBCI, Ecobank…"></div>
+    </div>
+    <div style="background:var(--surface2);border:1px solid var(--line);border-radius:var(--r);padding:12px;margin-top:12px;font-size:12px;color:var(--muted)">
+      💡 L'écriture comptable (413/411 ou 401/403) sera générée automatiquement à l'enregistrement.
+    </div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn-modal-cancel" onclick="document.getElementById('effetModal').style.display='none'">Annuler</button>
+      <button class="btn-modal-ok" onclick="saveEffet()">✓ Enregistrer & Générer écriture</button>
     </div>
   </div>
 </div>
