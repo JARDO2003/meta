@@ -94,20 +94,29 @@ document.dispatchEvent(new Event('firebase-ready'));
 
 // ══════════════════════════════════════════
 // CONFIGURATION SERVEUR — Chargée depuis Firestore (server_config)
-// Les clés API Groq et l'ordre des modèles sont gérés via server.html
+// Les clés API Groq, Mistral et l'ordre des modèles sont gérés via server.html
 // JAMAIS de clé API en dur dans ce fichier
 // ══════════════════════════════════════════
-let GROQ_API_KEYS = []; // Chargées depuis server_config/groq_keys
-let GROQ_MODELS = []; // Chargées depuis server_config/models
-let groqKeyIdx = 0; // Index rotation clés
-let groqModelIdx = 0; // Index rotation modèles
+let GROQ_API_KEYS = [];    // Chargées depuis server_config/groq_keys
+let GROQ_MODELS = [];      // Chargées depuis server_config/models
+let MISTRAL_API_KEYS = []; // Chargées depuis server_config/mistral_keys
+let MISTRAL_MODELS = [];   // Chargées depuis server_config/mistral_models
+let groqKeyIdx = 0;        // Index rotation clés Groq
+let groqModelIdx = 0;      // Index rotation modèles Groq
+let mistralKeyIdx = 0;     // Index rotation clés Mistral
 let serverConfigLoaded = false;
+
+// ── Cache mémoire local (session) — évite les allers-retours Firestore ──
+const aiMemoryCache = new Map(); // clé → réponse (RAM, vidé au rechargement)
+const AI_CACHE_MAX = 500;        // maximum d'entrées en mémoire
 
 async function loadServerConfig() {
   try {
-    const [keysSnap, modelsSnap] = await Promise.all([
+    const [keysSnap, modelsSnap, mistralKeysSnap, mistralModelsSnap] = await Promise.all([
       getDoc(doc(db, 'server_config', 'groq_keys')),
       getDoc(doc(db, 'server_config', 'models')),
+      getDoc(doc(db, 'server_config', 'mistral_keys')),
+      getDoc(doc(db, 'server_config', 'mistral_models')),
     ]);
 
     if (keysSnap.exists()) {
@@ -119,23 +128,89 @@ async function loadServerConfig() {
       GROQ_MODELS = modelsSnap.data().list || [];
     }
 
+    if (mistralKeysSnap.exists()) {
+      const rawMistral = mistralKeysSnap.data().keys || [];
+      MISTRAL_API_KEYS = rawMistral.map((k) => k.value).filter(Boolean);
+    }
+
+    if (mistralModelsSnap.exists()) {
+      MISTRAL_MODELS = mistralModelsSnap.data().list || [];
+    }
+
     // Valeurs par défaut si Firestore vide
     if (GROQ_MODELS.length === 0) {
       GROQ_MODELS = ['llama-3.3-70b-versatile', 'qwen/qwen3-32b', 'meta-llama/llama-4-scout-17b-16e-instruct'];
     }
+    if (MISTRAL_MODELS.length === 0) {
+      MISTRAL_MODELS = ['mistral-small-latest', 'open-mistral-7b'];
+    }
 
     serverConfigLoaded = true;
-    aiServiceAvailable = GROQ_API_KEYS.length > 0;
+    aiServiceAvailable = GROQ_API_KEYS.length > 0 || MISTRAL_API_KEYS.length > 0;
     updateServiceAvailabilityUI();
-    console.log(`[COMEO] Config chargée — ${GROQ_API_KEYS.length} clé(s) Groq, ${GROQ_MODELS.length} modèle(s)`);
+    console.log(
+      `[COMEO] Config chargée — ${GROQ_API_KEYS.length} clé(s) Groq, ` +
+      `${MISTRAL_API_KEYS.length} clé(s) Mistral, ${GROQ_MODELS.length} modèle(s) Groq`
+    );
   } catch (e) {
     console.warn('[COMEO] Erreur chargement config serveur :', e.message);
     aiServiceAvailable = false;
     serverConfigLoaded = true;
     updateServiceAvailabilityUI();
-    // Fallback modèles uniquement (sans clé — l'IA sera désactivée)
     GROQ_MODELS = ['llama-3.3-70b-versatile', 'qwen/qwen3-32b', 'meta-llama/llama-4-scout-17b-16e-instruct'];
+    MISTRAL_MODELS = ['mistral-small-latest', 'open-mistral-7b'];
   }
+}
+
+// ── Clé de cache universelle (utilisée par chat IA + robot vocal) ──
+function aiCacheKey(query) {
+  return (
+    'v3_' +
+    query
+      .toLowerCase()
+      .replace(/[^a-z0-9àâäéèêëîïôùûüç\s]/g, '')
+      .replace(/\s+/g, '_')
+      .substring(0, 120)
+  );
+}
+
+// ── Lire le cache : mémoire d'abord, puis Firestore ──
+async function aiCacheGet(key) {
+  if (aiMemoryCache.has(key)) {
+    console.log('[COMEO Cache] ✅ Mémoire RAM');
+    return aiMemoryCache.get(key);
+  }
+  try {
+    const snap = await getDoc(doc(robotDb, 'robot_cache', key));
+    if (snap.exists()) {
+      const val = snap.data().answer;
+      aiMemoryCache.set(key, val); // stocker en RAM pour la prochaine fois
+      console.log('[COMEO Cache] ✅ Firestore');
+      return val;
+    }
+  } catch (e) {}
+  return null;
+}
+
+// ── Écrire dans le cache : mémoire + Firestore ──
+async function aiCacheSet(key, answer) {
+  // Limite RAM : vider les plus anciens si plein
+  if (aiMemoryCache.size >= AI_CACHE_MAX) {
+    const firstKey = aiMemoryCache.keys().next().value;
+    aiMemoryCache.delete(firstKey);
+  }
+  aiMemoryCache.set(key, answer);
+  try {
+    await setDoc(doc(robotDb, 'robot_cache', key), {
+      answer,
+      savedAt: new Date().toISOString(),
+    });
+  } catch (e) {}
+}
+
+// ── Vérifier si la requête est une action (ne pas mettre en cache) ──
+function isActionQuery(queryLow) {
+  return /crée|cree|facture|montre|affiche|modif|ouvre|ouvrir|supprim|enregistr|saisir|journal|bilan/i.test(queryLow);
 }
 
 // ══════════════════════════════════════════
@@ -4235,19 +4310,43 @@ async function sendToAI(context) {
   if (conversationHistory.length > 20) conversationHistory = conversationHistory.slice(-20);
 
   try {
-    let response = null;
     let lastError = null;
     let data = null;
+    let fullText = null;
 
-    // ══ TENTATIVE 1 : GROQ ══
+    // ══ ÉTAPE 0 : CACHE — réponse instantanée si déjà connue ══
+    // On ne met pas en cache les actions (créer facture, ouvrir page, etc.)
+    const msgLow = msg.toLowerCase();
+    const cacheKey = aiCacheKey(msg);
+    const isAction = isActionQuery(msgLow);
+
+    if (!isAction) {
+      const cached = await aiCacheGet(cacheKey);
+      if (cached && !cached.includes('###')) {
+        console.log('[COMEO Chat] ✅ Réponse depuis cache');
+        removeTyping(context, tid);
+        conversationHistory.push({ role: 'assistant', content: cached });
+        fullText = cached;
+        // Sauter directement au traitement de la réponse
+        appendMsg(context, 'ai', fullText);
+        isAILoading = false;
+        if (sendBtnId) {
+          const btn = document.getElementById(sendBtnId);
+          if (btn) btn.disabled = false;
+        }
+        return;
+      }
+    }
+
+    // ══ ÉTAPE 1 : GROQ — rotation automatique sur toutes les clés ══
     if (GROQ_API_KEYS.length > 0) {
       const totalAttempts = GROQ_API_KEYS.length * GROQ_MODELS.length;
       for (let attempt = 0; attempt < Math.min(totalAttempts, 6); attempt++) {
         const keyToUse = GROQ_API_KEYS[(groqKeyIdx + attempt) % GROQ_API_KEYS.length];
         const modelToUse = GROQ_MODELS[(groqModelIdx + Math.floor(attempt / GROQ_API_KEYS.length)) % GROQ_MODELS.length];
         try {
-          if (attempt > 0) await new Promise((r) => setTimeout(r, 1000 * attempt));
-          response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          if (attempt > 0) await new Promise((r) => setTimeout(r, 800 * attempt));
+          const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -4265,16 +4364,19 @@ async function sendToAI(context) {
             groqKeyIdx = (groqKeyIdx + attempt) % GROQ_API_KEYS.length;
             groqModelIdx = (groqModelIdx + Math.floor(attempt / GROQ_API_KEYS.length)) % GROQ_MODELS.length;
             data = await response.json();
-            console.log('[COMEO] Groq OK');
+            console.log(`[COMEO] ✅ Groq OK — clé ${groqKeyIdx + 1}/${GROQ_API_KEYS.length}, modèle: ${modelToUse}`);
             break;
           }
           const errData = await response.json().catch(() => ({}));
           lastError = errData.error?.message || 'Erreur ' + response.status;
           if (response.status === 429) {
-            console.warn(`[COMEO] Groq 429 → clé suivante`);
+            console.warn(`[COMEO] Groq clé ${attempt + 1} saturée (429) → rotation vers clé suivante`);
             continue;
           }
-          if (response.status === 401 || response.status === 403) break;
+          if (response.status === 401 || response.status === 403) {
+            console.warn(`[COMEO] Groq clé ${attempt + 1} invalide (${response.status})`);
+            break;
+          }
         } catch (e) {
           lastError = e.message;
           if (attempt > 0) await new Promise((r) => setTimeout(r, 600));
@@ -4282,9 +4384,9 @@ async function sendToAI(context) {
       }
     }
 
-    // ══ TENTATIVE 2 : MISTRAL (si Groq échoue) ══
+    // ══ ÉTAPE 2 : MISTRAL — fallback si toutes les clés Groq sont saturées ══
     if (!data && MISTRAL_API_KEYS.length > 0) {
-      console.log('[COMEO] Groq épuisé → bascule sur Mistral');
+      console.log('[COMEO] Groq épuisé → bascule Mistral');
       toast('⚡ Basculement sur Mistral...', 'info');
       const mistralData = await callMistral(conversationHistory, systemPrompt);
       if (mistralData) data = mistralData;
@@ -4297,7 +4399,13 @@ async function sendToAI(context) {
 
     // ══ TRAITEMENT DE LA RÉPONSE ══
     removeTyping(context, tid);
-    const fullText = data.choices?.[0]?.message?.content || 'Pas de réponse.';
+    fullText = data.choices?.[0]?.message?.content || 'Pas de réponse.';
+    conversationHistory.push({ role: 'assistant', content: fullText });
+
+    // ── Sauvegarder dans le cache si ce n'est pas une action ──
+    if (!isAction && !fullText.includes('###')) {
+      aiCacheSet(cacheKey, fullText).catch(() => {});
+    }
     conversationHistory.push({ role: 'assistant', content: fullText });
 
     // Traitement FILTRE
@@ -6344,53 +6452,64 @@ ANALYSE AUTOMATIQUE :
   robotConvHistory.push({ role: 'user', content: query });
   if (robotConvHistory.length > 12) robotConvHistory = robotConvHistory.slice(-12);
 
-  // ── Vérifier cache ──
-  const cacheKey = robotCacheKey(query);
-  const isAction =
-    queryLow.includes('crée') ||
-    queryLow.includes('cree') ||
-    queryLow.includes('facture') ||
-    queryLow.includes('montre') ||
-    queryLow.includes('affiche') ||
-    queryLow.includes('modif') ||
-    /ouvre|ouvrir|youtube|google|lien|http|www\.|facebook|navigateur/i.test(queryLow);
-  if (!isAction) {
-    if (robotMemoryCache.has(cacheKey)) {
-      console.log('[COMEO Robot] Memory cache hit');
-      robotSpeak(stripRobotVoiceText(robotMemoryCache.get(cacheKey)));
-      return;
-    }
-    const cached = await robotCacheGet(cacheKey);
-    if (cached && !cached.includes('###')) {
-      console.log('[COMEO Robot] Cache hit');
-      robotMemoryCache.set(cacheKey, cached);
-      robotSpeak(stripRobotVoiceText(cached));
-      return;
-    }
-  }
-
   try {
-    let response;
-    for (let i = 0; i < Math.min(GROQ_API_KEYS.length, 3); i++) {
+    let reply = null;
+
+    // ══ ÉTAPE 0 : CACHE ROBOT — réponse instantanée ══
+    const robotCacheKeyStr = aiCacheKey(query);
+    const robotIsAction = isActionQuery(queryLow);
+    if (!robotIsAction) {
+      const cached = await aiCacheGet(robotCacheKeyStr);
+      if (cached && !cached.includes('###')) {
+        console.log('[COMEO Robot] ✅ Cache hit');
+        robotConvHistory.push({ role: 'assistant', content: cached });
+        robotSpeak(stripRobotVoiceText(cached));
+        return;
+      }
+    }
+
+    // ══ ÉTAPE 1 : GROQ — rotation sur toutes les clés ══
+    let data = null;
+    for (let i = 0; i < Math.min(GROQ_API_KEYS.length * 2, 6); i++) {
       const key = GROQ_API_KEYS[(groqKeyIdx + i) % GROQ_API_KEYS.length];
       const model = GROQ_MODELS[groqModelIdx % GROQ_MODELS.length];
-      response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
-        body: JSON.stringify({
-          model,
-          max_tokens: 420,
-          temperature: 0.62,
-          top_p: 0.92,
-          messages: [{ role: 'system', content: systemRobot }, ...robotConvHistory],
-        }),
-      });
-      if (response.ok) break;
+      try {
+        if (i > 0) await new Promise((r) => setTimeout(r, 600 * i));
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
+          body: JSON.stringify({
+            model,
+            max_tokens: 420,
+            temperature: 0.62,
+            top_p: 0.92,
+            messages: [{ role: 'system', content: systemRobot }, ...robotConvHistory],
+          }),
+        });
+        if (response.ok) {
+          groqKeyIdx = (groqKeyIdx + i) % GROQ_API_KEYS.length;
+          data = await response.json();
+          console.log(`[COMEO Robot] ✅ Groq OK — clé ${groqKeyIdx + 1}`);
+          break;
+        }
+        if (response.status === 429) { console.warn(`[COMEO Robot] Groq clé ${i+1} saturée → rotation`); continue; }
+      } catch (e) { continue; }
     }
 
-    if (!response || !response.ok) throw new Error('Erreur API');
-    const data = await response.json();
-    const reply = data.choices?.[0]?.message?.content?.trim() || "Je n'ai pas pu répondre.";
+    // ══ ÉTAPE 2 : MISTRAL fallback ══
+    if (!data && MISTRAL_API_KEYS.length > 0) {
+      console.log('[COMEO Robot] Groq épuisé → Mistral');
+      const mData = await callMistral(robotConvHistory, systemRobot);
+      if (mData) data = mData;
+    }
+
+    if (!data) throw new Error('Tous les providers indisponibles');
+    reply = data.choices?.[0]?.message?.content?.trim() || "Je n'ai pas pu répondre.";
+
+    // Sauvegarder dans le cache si ce n'est pas une action
+    if (!robotIsAction && reply && !reply.includes('###')) {
+      aiCacheSet(robotCacheKeyStr, reply).catch(() => {});
+    }
     robotConvHistory.push({ role: 'assistant', content: reply });
 
     // ── TRAITEMENT DES ACTIONS ──
@@ -6552,10 +6671,6 @@ ANALYSE AUTOMATIQUE :
     }
 
     // 4. Réponse normale
-    if (!isAction) {
-      robotMemoryCache.set(cacheKey, reply);
-      await robotCacheSet(cacheKey, reply);
-    }
     robotSpeak(stripRobotVoiceText(reply));
   } catch (err) {
     console.warn('[COMEO Robot]', err);
