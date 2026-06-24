@@ -182,8 +182,7 @@ let groqKeyIdx   = 0;
 let groqModelIdx = 0;
 let serverConfigLoaded = false;
 
-// aiServiceAvailable already declared above
-let subscriptionCheckInterval = null;
+
  
 // ════════════════════════════════════════════════════════════════
 //   2B — FILE D'ATTENTE GLOBALE (RequestQueue)
