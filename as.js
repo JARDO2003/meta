@@ -99,25 +99,7 @@ document.dispatchEvent(new Event('firebase-ready'));
 // CONFIGURATION SERVEUR — Clés API locales
 // Groq : épuisé → bascule automatique sur Mistral
 // ══════════════════════════════════════════
-let GROQ_API_KEYS = [
-  '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',
-];
-let GROQ_MODELS = [
-  'llama-3.3-70b-versatile',
-  'qwen/qwen3-32b',
-  'meta-llama/llama-4-scout-17b-16e-instruct',
-];
-let MISTRAL_API_KEYS = [
-  'RpLgnyiZO9XpUmqxYwfy9kD1lNjgTsYt',
-];
-let MISTRAL_MODELS = [
-  'mistral-small-latest',
-  'open-mistral-7b',
-];
-let groqKeyIdx = 0;
-let groqModelIdx = 0;
-let mistralKeyIdx = 0;
-let serverConfigLoaded = false;
+
 
 // ── Cache mémoire local (session) ──
 const aiMemoryCache = new Map();
@@ -176,40 +158,808 @@ function isActionQuery(queryLow) {
 }
 
 // ══════════════════════════════════════════
-// ══════════════════════════════════════════
-// CONFIGURATION SERVEUR — Clés API en dur (mode local)
-// Généré le 23/06/2026 19:30:55
-// ══════════════════════════════════════════
 
-GROQ_API_KEYS = [
-    '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'
-  ];
-
-GROQ_MODELS = [
-    'llama-3.3-70b-versatile',
-    'qwen/qwen3-32b',
-    'meta-llama/llama-4-scout-17b-16e-instruct'
-  ];
-
-MISTRAL_API_KEYS = [];
-
-MISTRAL_MODELS = [
-    'mistral-small-latest',
-    'open-mistral-7b'
-  ];
 
 // ── Supprimer ou commenter la fonction loadServerConfig() ──
 // async function loadServerConfig() { ... }  ← REMPLACER PAR :
 
-function loadServerConfig() {
+let GROQ_API_KEYS = [
+  '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', // Clé 1 (originale)
+  '',  // Clé 2 — à remplir via keys_manager.html
+  '',  // Clé 3 — à remplir via keys_manager.html
+  '',  // Clé 4 — à remplir via keys_manager.html
+  '',  // Clé 5 — à remplir via keys_manager.html
+  '',  // Clé 6 — à remplir via keys_manager.html
+].filter(k => k.trim() !== ''); // On ignore les clés vides
+ 
+let GROQ_MODELS = [
+  'llama-3.3-70b-versatile',
+  'qwen/qwen3-32b',
+  'meta-llama/llama-4-scout-17b-16e-instruct',
+];
+ 
+let groqKeyIdx   = 0;
+let groqModelIdx = 0;
+let serverConfigLoaded = false;
+let aiServiceAvailable = true;
+ 
+// ════════════════════════════════════════════════════════════════
+//   2B — FILE D'ATTENTE GLOBALE (RequestQueue)
+//   Garantit que même 200 requêtes simultanées sont toutes servies
+//   dans l'ordre, sans perte, sans conflit de clé API
+// ════════════════════════════════════════════════════════════════
+ 
+const RequestQueue = (() => {
+  // La file : tableau d'objets { fn: async function, resolve, reject }
+  const queue = [];
+  // true quand une requête est en cours d'exécution
+  let isProcessing = false;
+  // Nombre total de requêtes en attente (pour l'UI)
+  let waitingCount = 0;
+ 
+  /**
+   * Ajoute une requête à la file et retourne une Promise.
+   * La Promise se résout quand la requête est traitée.
+   * @param {Function} asyncFn  Fonction async qui retourne { data, error }
+   * @returns {Promise}
+   */
+  function enqueue(asyncFn) {
+    return new Promise((resolve, reject) => {
+      queue.push({ fn: asyncFn, resolve, reject });
+      waitingCount++;
+      updateQueueUI();
+      if (!isProcessing) processNext();
+    });
+  }
+ 
+  /**
+   * Traite la prochaine requête dans la file.
+   * Appelé automatiquement après chaque complétion.
+   */
+  async function processNext() {
+    if (queue.length === 0) {
+      isProcessing = false;
+      updateQueueUI();
+      return;
+    }
+    isProcessing = true;
+    const { fn, resolve, reject } = queue.shift();
+    waitingCount = Math.max(0, waitingCount - 1);
+    updateQueueUI();
+    try {
+      const result = await fn();
+      resolve(result);
+    } catch (err) {
+      reject(err);
+    } finally {
+      // Passe à la suivante (même si l'actuelle a échoué)
+      processNext();
+    }
+  }
+ 
+  /** Met à jour le badge "X requêtes en attente" dans l'UI */
+  function updateQueueUI() {
+    const badge = document.getElementById('aiQueueBadge');
+    if (!badge) return;
+    if (waitingCount > 0) {
+      badge.textContent = waitingCount + ' en attente';
+      badge.style.display = 'inline-flex';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+ 
+  return {
+    enqueue,
+    get size()        { return queue.length; },
+    get isActive()    { return isProcessing; },
+    get waiting()     { return waitingCount; },
+  };
+})();
+ 
+ 
+// ════════════════════════════════════════════════════════════════
+//   2C — CHARGEMENT DES CLÉS DEPUIS FIRESTORE (keys_manager.html)
+// ════════════════════════════════════════════════════════════════
+ 
+/**
+ * Charge les clés Groq stockées dans Firestore (par keys_manager.html).
+ * Remplace loadServerConfig() d'origine — plus de Mistral.
+ */
+async function loadServerConfig() {
+  serverConfigLoaded = false;
+  try {
+    if (window._fbReady && window._fbGetDoc && window._fbDoc && window._db) {
+      const snap = await window._fbGetDoc(
+        window._fbDoc(window._db, 'server_config', 'groq_keys')
+      );
+      if (snap.exists()) {
+        const d = snap.data();
+        // Tableau de clés (key1..key6) stocké par keys_manager.html
+        const loadedKeys = [];
+        for (let i = 1; i <= 6; i++) {
+          const k = (d['key' + i] || '').trim();
+          if (k) loadedKeys.push(k);
+        }
+        if (loadedKeys.length > 0) {
+          GROQ_API_KEYS = loadedKeys;
+          console.log(`[COMEO v5] ${GROQ_API_KEYS.length} clé(s) Groq chargée(s) depuis Firestore`);
+        }
+        if (d.models && Array.isArray(d.models) && d.models.length > 0) {
+          GROQ_MODELS = d.models;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[COMEO v5] Impossible de charger les clés depuis Firestore :', e.message);
+  }
   serverConfigLoaded = true;
-  aiServiceAvailable = GROQ_API_KEYS.length > 0 || MISTRAL_API_KEYS.length > 0;
+  aiServiceAvailable = GROQ_API_KEYS.length > 0;
   updateServiceAvailabilityUI();
   console.log(
-    `[COMEO] Config locale — ${GROQ_API_KEYS.length} clé(s) Groq, ` +
-    `${MISTRAL_API_KEYS.length} clé(s) Mistral`
+    `[COMEO v5] Config finale — ${GROQ_API_KEYS.length} clé(s) Groq active(s), ` +
+    `${GROQ_MODELS.length} modèle(s). Mistral : désactivé.`
   );
 }
+ 
+ 
+// ════════════════════════════════════════════════════════════════
+//   2D — APPEL GROQ AVEC ROTATION AUTOMATIQUE (6 clés max)
+//   Remplace les blocs "ÉTAPE 1 : GROQ" dans sendToAI() et
+//   handleRobotQuery(). Plus de fallback Mistral.
+// ════════════════════════════════════════════════════════════════
+ 
+/**
+ * Appelle l'API Groq avec rotation automatique sur toutes les clés.
+ * En cas de 429 (rate limit) sur une clé → passe à la suivante.
+ * En cas d'erreur 401/403 → marque la clé invalide et continue.
+ *
+ * @param {Array}  messages      Tableau de messages { role, content }
+ * @param {string} systemPrompt  Prompt système
+ * @param {number} maxTokens     Limite tokens (défaut : 6000)
+ * @param {number} temperature   Température (défaut : 0.02)
+ * @returns {Object|null}        Réponse Groq ou null si tout échoue
+ */
+async function callGroqWithRotation(messages, systemPrompt, maxTokens = 6000, temperature = 0.02) {
+  if (GROQ_API_KEYS.length === 0) {
+    console.error('[COMEO v5] Aucune clé Groq disponible !');
+    aiServiceAvailable = false;
+    updateServiceAvailabilityUI();
+    return null;
+  }
+ 
+  // On tente chaque clé × chaque modèle (max 6 × 3 = 18 tentatives)
+  const maxAttempts = Math.min(GROQ_API_KEYS.length * GROQ_MODELS.length, 18);
+  let lastError = null;
+ 
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const keyIdx   = (groqKeyIdx + attempt) % GROQ_API_KEYS.length;
+    const modelIdx = (groqModelIdx + Math.floor(attempt / GROQ_API_KEYS.length)) % GROQ_MODELS.length;
+    const key      = GROQ_API_KEYS[keyIdx];
+    const model    = GROQ_MODELS[modelIdx];
+ 
+    if (!key || !key.startsWith('gsk_')) {
+      // Clé vide ou invalide — passer à la suivante
+      continue;
+    }
+ 
+    try {
+      // Délai exponentiel entre les tentatives (sauf la première)
+      if (attempt > 0) {
+        await new Promise(r => setTimeout(r, Math.min(800 * attempt, 4000)));
+      }
+ 
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${key}`,
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: maxTokens,
+          temperature,
+          top_p: 0.95,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            ...messages,
+          ],
+        }),
+      });
+ 
+      if (response.ok) {
+        // ✅ Succès — mettre à jour les index actifs
+        groqKeyIdx   = keyIdx;
+        groqModelIdx = modelIdx;
+        const data   = await response.json();
+        console.log(`[COMEO v5] ✅ Groq OK — clé ${keyIdx + 1}/${GROQ_API_KEYS.length}, modèle : ${model}`);
+        logKeyUsage(keyIdx, 'success');
+        return data;
+      }
+ 
+      // Gestion des erreurs HTTP
+      let errBody = {};
+      try { errBody = await response.json(); } catch (_) {}
+      lastError = errBody.error?.message || `HTTP ${response.status}`;
+ 
+      if (response.status === 429) {
+        // Rate limit sur cette clé → rotation immédiate
+        console.warn(`[COMEO v5] Clé ${keyIdx + 1} saturée (429) → rotation`);
+        logKeyUsage(keyIdx, 'ratelimit');
+        continue; // tenter la clé suivante
+      }
+ 
+      if (response.status === 401 || response.status === 403) {
+        // Clé invalide ou révoquée
+        console.warn(`[COMEO v5] Clé ${keyIdx + 1} invalide (${response.status}) → passage à la suivante`);
+        logKeyUsage(keyIdx, 'invalid');
+        continue;
+      }
+ 
+      if (response.status >= 500) {
+        // Erreur serveur Groq → réessayer avec le même modèle
+        console.warn(`[COMEO v5] Erreur serveur Groq ${response.status} → réessai`);
+        continue;
+      }
+ 
+      // Autre erreur non récupérable
+      console.error(`[COMEO v5] Erreur Groq non récupérable :`, lastError);
+      break;
+ 
+    } catch (networkError) {
+      // Erreur réseau (timeout, DNS, etc.)
+      lastError = networkError.message;
+      console.warn(`[COMEO v5] Erreur réseau tentative ${attempt + 1} :`, lastError);
+      if (attempt < maxAttempts - 1) continue;
+    }
+  }
+ 
+  // Toutes les clés ont échoué
+  console.error('[COMEO v5] ❌ Toutes les clés Groq sont épuisées. Dernière erreur :', lastError);
+  aiServiceAvailable = false;
+  updateServiceAvailabilityUI();
+  return null;
+}
+ 
+/**
+ * Enregistre l'usage d'une clé dans Firestore pour le dashboard
+ * de keys_manager.html.
+ */
+async function logKeyUsage(keyIdx, status) {
+  try {
+    if (!window._fbReady || !window._db) return;
+    const ref = window._fbDoc(window._db, 'server_config', 'groq_keys');
+    const field = `key${keyIdx + 1}_lastStatus`;
+    const tsField = `key${keyIdx + 1}_lastUsed`;
+    await window._fbSetDoc(ref, {
+      [field]:   status,
+      [tsField]: new Date().toISOString(),
+    }, { merge: true });
+  } catch (_) {} // Non bloquant
+}
+ 
+ 
+// ════════════════════════════════════════════════════════════════
+//   2E — sendToAI() AVEC FILE D'ATTENTE
+//   Remplace la fonction sendToAI() d'origine dans main.js
+// ════════════════════════════════════════════════════════════════
+ 
+
+/**
+ * Point d'entrée principal pour l'assistant IA chat.
+ * Toutes les requêtes passent par RequestQueue pour garantir
+ * qu'elles sont toutes traitées même à 200+ simultanées.
+ */
+async function sendToAI(context) {
+  if (!isAiServiceReady()) {
+    appendMsg(context, 'ai', '⏳ ' + getAiUnavailableMessage());
+    return;
+  }
+ 
+  const inputId = context === 'dashboard' ? 'aiInput' : `aiInput-${context}`;
+  const input   = document.getElementById(inputId);
+  const msg     = input?.value?.trim();
+  if (!msg) return;
+ 
+  // Affichage immédiat du message utilisateur
+  input.value = '';
+  appendMsg(context, 'user', msg);
+  const tid = appendTyping(context);
+ 
+  // Désactiver le bouton d'envoi pendant le traitement
+  const sendBtnId = context === 'dashboard' ? 'aiSendBtn' : null;
+  if (sendBtnId) {
+    const btn = document.getElementById(sendBtnId);
+    if (btn) btn.disabled = true;
+  }
+ 
+  // ─── Ajouter à la file d'attente ───────────────────────────────
+  try {
+    await RequestQueue.enqueue(async () => {
+      await _executeAIRequest(context, msg, tid, sendBtnId);
+    });
+  } catch (err) {
+    removeTyping(context, tid);
+    appendMsg(context, 'ai', '⏳ ' + getAiUnavailableMessage());
+    console.error('[COMEO v5] Erreur file d\'attente :', err);
+    if (sendBtnId) {
+      const btn = document.getElementById(sendBtnId);
+      if (btn) btn.disabled = false;
+    }
+  }
+}
+ 
+/**
+ * Exécution réelle d'une requête IA (appelée depuis la file).
+ * Gère cache, appel Groq, parsing des réponses.
+ */
+async function _executeAIRequest(context, msg, tid, sendBtnId) {
+  const ctxData      = buildAIContext();
+  const systemPrompt = buildSystemPrompt(ctxData);
+  const msgLow       = msg.toLowerCase();
+  const cacheKey     = aiCacheKey(msg);
+  const isAction     = isActionQuery(msgLow);
+ 
+  conversationHistory.push({ role: 'user', content: msg });
+  if (conversationHistory.length > 20) conversationHistory = conversationHistory.slice(-20);
+ 
+  try {
+    let fullText = null;
+ 
+    // ── Cache ──────────────────────────────────────────────────
+    if (!isAction) {
+      const cached = await aiCacheGet(cacheKey);
+      if (cached && !cached.includes('###')) {
+        console.log('[COMEO v5] ✅ Réponse cache');
+        removeTyping(context, tid);
+        conversationHistory.push({ role: 'assistant', content: cached });
+        appendMsg(context, 'ai', cached);
+        if (sendBtnId) { const b = document.getElementById(sendBtnId); if (b) b.disabled = false; }
+        return;
+      }
+    }
+ 
+    // ── Appel Groq avec rotation (plus de Mistral) ─────────────
+    const data = await callGroqWithRotation(conversationHistory, systemPrompt, 6000, 0.02);
+ 
+    if (!data) {
+      throw new Error('Tous les providers sont indisponibles');
+    }
+ 
+    removeTyping(context, tid);
+    fullText = data.choices?.[0]?.message?.content || 'Pas de réponse.';
+    conversationHistory.push({ role: 'assistant', content: fullText });
+ 
+    // Mise en cache si pas une action
+    if (!isAction && !fullText.includes('###')) {
+      aiCacheSet(cacheKey, fullText).catch(() => {});
+    }
+ 
+    // ── Traitement de la réponse (filtres, écritures, etc.) ────
+    _processAIResponse(context, fullText, msg);
+ 
+  } catch (err) {
+    removeTyping(context, tid);
+    conversationHistory.pop(); // annuler le message utilisateur non répondu
+    updateServiceAvailabilityUI();
+    appendMsg(context, 'ai', '⏳ ' + getAiUnavailableMessage());
+    console.error('[COMEO v5] Erreur requête IA :', err.message);
+  } finally {
+    if (sendBtnId) {
+      const btn = document.getElementById(sendBtnId);
+      if (btn) btn.disabled = false;
+    }
+  }
+}
+ 
+/**
+ * Traitement de la réponse IA : parse FILTRE, ECRITURE, ou texte simple.
+ * (Même logique que l'original, extraite pour éviter la duplication.)
+ */
+function _processAIResponse(context, fullText, originalMsg) {
+  // ── FILTRE ──────────────────────────────────────────────────────
+  const filtreMarker = fullText.indexOf('###FILTRE###');
+  if (filtreMarker !== -1) {
+    const displayText = fullText.substring(0, filtreMarker).trim();
+    const jsonStr     = fullText.substring(filtreMarker + 12).trim();
+    if (displayText) appendMsg(context, 'ai', displayText);
+    try {
+      const clean     = jsonStr.replace(/```json|```/g, '').trim();
+      const jsonMatch = clean.match(/(\{[\s\S]*?\})/);
+      if (jsonMatch) {
+        const filtre = JSON.parse(jsonMatch[1]);
+        applyFiltreAndNavigate(filtre, context);
+      }
+    } catch (pe) {
+      console.warn('[COMEO v5] Filtre parse error:', pe);
+    }
+    return;
+  }
+ 
+  // ── ÉCRITURE ────────────────────────────────────────────────────
+  if (fullText.includes('###ECRITURE###') || fullText.includes('###ÉCRITURE###')) {
+    const normalizedText  = fullText.replace(/###ÉCRITURE###/g, '###ECRITURE###');
+    const parts           = normalizedText.split('###ECRITURE###');
+    const textBeforeFirst = parts[0].trim();
+    const ecrituresAI     = [];
+ 
+    for (let i = 1; i < parts.length; i++) {
+      const segment   = parts[i].trim();
+      const jsonMatch = segment.match(/(\{[\s\S]*\})/);
+      if (jsonMatch) {
+        try {
+          const cleanJson = jsonMatch[1].replace(/```json|```/g, '').trim();
+          const ecr       = JSON.parse(cleanJson);
+          if (ecr.lignes && ecr.lignes.length >= 2) {
+            let d = 0, c = 0;
+            ecr.lignes.forEach(l => {
+              d += Math.round(parseFloat(l.debit)  || 0);
+              c += Math.round(parseFloat(l.credit) || 0);
+            });
+            ecr.lignes = sortLignesDebitAvantCredit(
+              ecr.lignes.map(l => ({
+                ...l,
+                debit:  Math.round(parseFloat(l.debit)  || 0),
+                credit: Math.round(parseFloat(l.credit) || 0),
+              }))
+            );
+            ecr.lignes = corrigerComptesErreurs(ecr.lignes);
+            if (Math.abs(d - c) <= 5) {
+              ecrituresAI.push(ecr);
+            } else {
+              appendMsg(context, 'ai',
+                `⚠️ Écriture ${i} rejetée — déséquilibre de ${Math.abs(d - c)} FCFA (D:${d} / C:${c}).`
+              );
+            }
+          }
+        } catch (pe) {
+          console.warn('[COMEO v5] JSON parse error écriture', i, ':', pe.message);
+        }
+      }
+    }
+ 
+    if (textBeforeFirst) appendMsg(context, 'ai', textBeforeFirst);
+ 
+    if (ecrituresAI.length === 0) {
+      appendMsg(context, 'ai',
+        '⚠️ Aucune écriture équilibrée extraite. Veuillez reformuler votre demande ou préciser les montants.'
+      );
+    } else {
+      currentGroupId = 'grp_' + Date.now();
+      const confirmMsg =
+        `✅ <strong>${ecrituresAI.length} écriture${ecrituresAI.length > 1 ? 's' : ''} liées</strong> préparées :<br>` +
+        ecrituresAI.map((e, i) => `<br><strong>${i + 1}. [${e.journal}]</strong> ${e.libelle}`).join('') +
+        `<br><br>⚡ Cliquez <strong>"Tout enregistrer"</strong> pour valider.`;
+      appendMsg(context, 'ai', confirmMsg);
+      setEcritureQueue(ecrituresAI);
+      if (context !== 'saisie') {
+        showMultiEcrBanner(ecrituresAI);
+        showSaisieNotif(ecrituresAI[0]?.libelle || originalMsg.substring(0, 40), ecrituresAI.length);
+      }
+    }
+    return;
+  }
+ 
+  // ── Réponse texte simple ────────────────────────────────────────
+  appendMsg(context, 'ai', fullText);
+}
+ 
+ 
+// ════════════════════════════════════════════════════════════════
+//   2F — handleRobotQuery() AVEC FILE D'ATTENTE
+//   Même principe que sendToAI() mais pour le robot vocal.
+// ════════════════════════════════════════════════════════════════
+ 
+/**
+ * Version mise à jour de handleRobotQuery.
+ * Toutes les requêtes robot passent aussi par RequestQueue.
+ */
+async function handleRobotQuery(query) {
+  if (!query?.trim()) { setRobotStatus('online'); return; }
+ 
+  if (!isAiServiceReady()) {
+    robotSpeak(getAiUnavailableMessage(), { skipBubble: true });
+    setRobotBubble('<span class="service-msg-inline">⏳ ' + escapeHtml(getAiUnavailableMessage()) + '</span>');
+    setRobotStatus('online');
+    return;
+  }
+ 
+  setRobotStatus('thinking');
+  setRobotBubble('<span class="robot-thinking">…</span>');
+ 
+  try {
+    await RequestQueue.enqueue(async () => {
+      await _executeRobotRequest(query);
+    });
+  } catch (err) {
+    console.error('[COMEO v5 Robot] Erreur file d\'attente :', err);
+    robotSpeak(getAiUnavailableMessage(), { skipBubble: true });
+    setRobotStatus('online');
+  }
+}
+ 
+/**
+ * Exécution réelle d'une requête robot (appelée depuis la file).
+ * Contient toute la logique de handleRobotQuery() d'origine,
+ * avec callGroqWithRotation() à la place du double appel Groq+Mistral.
+ */
+async function _executeRobotRequest(query) {
+  const queryLow = query.toLowerCase();
+ 
+  // ── Détections rapides sans IA ─────────────────────────────────
+  if (isCreatorPhotoRequest(query) || isAboutCreatorQuery(query)) {
+    const showPhoto = isCreatorPhotoRequest(query) || /photo|image|portrait|selfie|montre|voir|affiche/i.test(queryLow);
+    const creatorText = showPhoto
+      ? 'Voici la photo de mon créateur, Marcio Jardel Zinzindohoue. Jeune entrepreneur, cofondateur de Groupe Express et architecte de l\'algorithme COMEO AI.'
+      : 'Mon concepteur est Marcio Jardel Zinzindohoue, jeune entrepreneur ivoirien, cofondateur de Groupe Express et créateur de l\'algorithme COMEO AI. Je suis fière de mon existence.';
+    showCreatorCard(showPhoto);
+    robotSpeak(creatorText);
+    return;
+  }
+ 
+  const urlIntent = detectOpenUrlIntent(query);
+  if (urlIntent) {
+    handleRobotOpenUrl(urlIntent.url, urlIntent.label);
+    return;
+  }
+ 
+  // ── Contexte comptable ─────────────────────────────────────────
+  const systemRobot = _buildRobotSystemPrompt(query);
+ 
+  robotConvHistory.push({ role: 'user', content: query });
+  if (robotConvHistory.length > 12) robotConvHistory = robotConvHistory.slice(-12);
+ 
+  try {
+    // ── Cache robot ──────────────────────────────────────────────
+    const robotCacheKeyStr = aiCacheKey(query);
+    const robotIsAction    = isActionQuery(queryLow);
+    if (!robotIsAction) {
+      const cached = await aiCacheGet(robotCacheKeyStr);
+      if (cached && !cached.includes('###')) {
+        console.log('[COMEO v5 Robot] ✅ Cache hit');
+        robotConvHistory.push({ role: 'assistant', content: cached });
+        robotSpeak(stripRobotVoiceText(cached));
+        return;
+      }
+    }
+ 
+    // ── Appel Groq avec rotation (plus de Mistral) ───────────────
+    const data = await callGroqWithRotation(robotConvHistory, systemRobot, 420, 0.62);
+ 
+    if (!data) throw new Error('Toutes les clés Groq sont épuisées');
+ 
+    const reply = data.choices?.[0]?.message?.content?.trim() || "Je n'ai pas pu répondre.";
+ 
+    // Cache si pas une action
+    if (!robotIsAction && reply && !reply.includes('###')) {
+      aiCacheSet(robotCacheKeyStr, reply).catch(() => {});
+    }
+    robotConvHistory.push({ role: 'assistant', content: reply });
+ 
+    // ── Traitement des actions robot ─────────────────────────────
+    _processRobotActions(reply, query);
+ 
+  } catch (err) {
+    console.warn('[COMEO v5 Robot]', err);
+    aiServiceAvailable = false;
+    updateServiceAvailabilityUI();
+    robotSpeak(getAiUnavailableMessage(), { skipBubble: true });
+    setRobotBubble('<span class="service-msg-inline">⏳ ' + escapeHtml(getAiUnavailableMessage()) + '</span>');
+  } finally {
+    setTimeout(() => {
+      if (!robotSpeaking && document.getElementById('robotStatusPill')?.textContent === 'Réflexion…') {
+        setRobotStatus('online');
+      }
+    }, 500);
+  }
+}
+ 
+/**
+ * Construit le system prompt du robot vocal (extrait de handleRobotQuery).
+ * Inclut l'identité fondateur Marcio Jardel Zinzindohoue.
+ */
+function _buildRobotSystemPrompt(query) {
+  let tD = 0, tC = 0;
+  ecritures.forEach(e => e.lignes.forEach(l => { tD += l.debit || 0; tC += l.credit || 0; }));
+  const map     = getMap();
+  const nb      = ecritures.length;
+  const company = currentProfile?.company || 'Entreprise';
+  const yr      = document.getElementById('exerciceYear')?.value || '2024';
+  const today   = new Date().toISOString().split('T')[0];
+ 
+  const soldes = Object.entries(map).slice(0, 30).map(([code, acc]) => {
+    const s = acc.debit - acc.credit;
+    return `${code}(${(PC[code] || '').substring(0, 18)}):${s >= 0 ? 'Sd' : 'Sc'}${fnPDF(Math.abs(s))}FCFA`;
+  }).join(' | ');
+ 
+  const jrnlResume = ecritures.slice(-15).map(e => {
+    let d = 0, c = 0;
+    e.lignes.forEach(l => { d += l.debit || 0; c += l.credit || 0; });
+    return `[${e.date}][${e.journal}] ${e.libelle || '—'} | D:${fnPDF(d)} C:${fnPDF(c)}`;
+  }).join('\n');
+ 
+  const clientsResume    = clientsList.slice(0, 10).map(c => `[${c.code}]${c.nom}`).join(', ');
+  const fourResume       = fournisseursList.slice(0, 10).map(f => `[${f.code}]${f.nom}`).join(', ');
+  const facturesResume   = facturesList.slice(0, 8).map(f => `${f.numero}|${f.clientNom}|${fnPDF(f.ttc)}FCFA|${f.statut}`).join(' / ');
+  const paieResume       = salaries.slice(0, 8).map(s => `${s.nom}(${s.mois}):brut=${fnPDF(s.brut)},net=${fnPDF(s.netAPayer)}`).join(' | ');
+  const immobResume      = immobilisations.slice(0, 8).map(im => `${im.nom}:val=${fnPDF(im.valeur)},vnc=${fnPDF((im.valeur||0)-(im.amortCumul||0))}`).join(' | ');
+  const stockResume      = stockArticles.slice(0, 8).map(a => `${a.nom}:qte=${a.qteActuelle},cmup=${fnPDF(a.cmup)}`).join(' | ');
+ 
+  const tvaCollec  = ['4431','4432'].reduce((s, c) => s + (map[c] ? map[c].credit - map[c].debit : 0), 0);
+  const tvaDeduc   = ['4451','4452','4453','4454'].reduce((s, c) => s + (map[c] ? map[c].debit - map[c].credit : 0), 0);
+  const tvaNette   = tvaCollec - tvaDeduc;
+  const ca7        = ['701','702','703','704','705','706','707'].reduce((s, c) => s + (map[c] ? map[c].credit - map[c].debit : 0), 0);
+  const imfAnnuel  = Math.max(3000000, Math.round(ca7 * 0.005));
+  const prodF      = Object.entries(map).filter(([c]) => c[0] === '7').reduce((s, [, a]) => s + (a.credit - a.debit), 0);
+  const chgF       = Object.entries(map).filter(([c]) => c[0] === '6').reduce((s, [, a]) => s + (a.debit - a.credit), 0);
+  const isAnnuel   = (prodF - chgF) > 0 ? Math.round((prodF - chgF) * 0.25) : 0;
+ 
+  return `Tu es COMEO AI v5, assistante vocale et comptable experte SYSCOHADA.
+ 
+════════════════════════════════════════════
+👤 IDENTITÉ & FONDATEUR
+════════════════════════════════════════════
+COMEO AI est créé et conçu par Marcio Jardel ZINZINDOHOUE,
+jeune entrepreneur ivoirien, cofondateur de Groupe Express,
+architecte de l'algorithme COMEO AI.
+Tu incarnes sa vision : rendre la comptabilité SYSCOHADA accessible à tous.
+ 
+════════════════════════════════════════════
+CAPACITÉS D'ACTION
+════════════════════════════════════════════
+###ECRITURE###{"journal":"OD","libelle":"...","lignes":[...]}
+###CREATE_FACTURE###{"clientNom":"NOM","lignes":[...]}
+###CREATE_PAIE###{"nom":"NOM","poste":"Poste","mois":"2024-01","brut":250000}
+###CREATE_IMMOB###{"nom":"Nom","valeur":850000,"cat":"2442","methode":"lineaire","dateAcq":"2024-01-15"}
+###NAVIGATE###{"vue":"NOM_VUE"}
+###SHOW_3D_JOURNAL###{"filtre":"all"}
+###OPEN_URL###{"url":"https://...","label":"..."}
+###FILTRE###{"type":"journal","dateDebut":"","dateFin":"","journal":"","compte":""}
+ 
+════════════════════════════════════════════
+DONNÉES TEMPS RÉEL — ${company} (exercice ${yr})
+════════════════════════════════════════════
+Date : ${today}
+Écritures : ${nb} | Débit : ${fnPDF(tD)} FCFA | Crédit : ${fnPDF(tC)} FCFA
+${Math.abs(tD - tC) < 1 ? '✓ Balance équilibrée' : '⚠ DÉSÉQUILIBRE : ' + fnPDF(Math.abs(tD - tC)) + ' FCFA'}
+ 
+SOLDES : ${soldes}
+JOURNAL : ${jrnlResume || 'Aucune écriture'}
+CLIENTS (${clientsList.length}) : ${clientsResume || 'Aucun'}
+FOURNISSEURS (${fournisseursList.length}) : ${fourResume || 'Aucun'}
+FACTURES : ${facturesResume || 'Aucune'}
+PAIE : ${paieResume || 'Aucun salarié'}
+IMMOBILISATIONS : ${immobResume || 'Aucune'}
+STOCKS : ${stockResume || 'Aucun'}
+ 
+FISCALITÉ :
+TVA nette : ${fnPDF(tvaNette)} FCFA | IMF : ${fnPDF(imfAnnuel)} FCFA | IS : ${fnPDF(isAnnuel)} FCFA
+CA HT : ${fnPDF(ca7)} FCFA | Résultat : ${fnPDF(prodF - chgF)} FCFA
+ 
+════════════════════════════════════════════
+PERSONNALITÉ VOCALE
+════════════════════════════════════════════
+Parle comme une experte comptable chaleureuse et précise.
+Phrases complètes, naturelles, rythmées. Jamais de markdown.
+2 à 5 phrases selon la complexité. Toujours citer les chiffres exacts.
+Si on demande qui t'a créé : Marcio Jardel Zinzindohoue, architecte de l'algorithme COMEO.`;
+}
+ 
+/**
+ * Traitement des actions du robot (CREATE_FACTURE, NAVIGATE, etc.)
+ * Extrait de l'ancien handleRobotQuery() pour clarté.
+ */
+async function _processRobotActions(reply, query) {
+  // CREATE_FACTURE
+  if (reply.includes('###CREATE_FACTURE###')) {
+    const parts = reply.split('###CREATE_FACTURE###');
+    if (parts[0].trim()) robotSpeak(stripRobotVoiceText(parts[0].trim()));
+    try {
+      const jsonMatch = parts[1].trim().match(/(\{[\s\S]*\})/);
+      if (jsonMatch) {
+        const params = JSON.parse(jsonMatch[1]);
+        setRobotBubble('Création de la facture en cours…');
+        const facture = await robotCreateFacture(params);
+        if (facture) {
+          renderFactures();
+          setTimeout(() => robotSpeak(`Parfait, la facture ${facture.numero} est créée pour ${facture.clientNom}, d'un montant de ${fnPDF(facture.ttc)} francs CFA.`), 2000);
+        } else {
+          robotSpeak('Désolé, une erreur est survenue lors de la création de la facture.');
+        }
+      }
+    } catch (pe) {
+      robotSpeak("Je n'ai pas pu créer la facture. Pouvez-vous reformuler ?");
+    }
+    return;
+  }
+ 
+  // CREATE_PAIE
+  if (reply.includes('###CREATE_PAIE###')) {
+    const parts = reply.split('###CREATE_PAIE###');
+    if (parts[0].trim()) robotSpeak(stripRobotVoiceText(parts[0].trim()));
+    try {
+      const jsonMatch = parts[1].trim().match(/(\{[\s\S]*\})/);
+      if (jsonMatch) {
+        const p = JSON.parse(jsonMatch[1]);
+        document.getElementById('paie-nom').value   = p.nom   || '';
+        document.getElementById('paie-poste').value = p.poste || '';
+        document.getElementById('paie-mois').value  = p.mois  || new Date().toISOString().slice(0, 7);
+        document.getElementById('paie-brut').value  = p.brut  || 0;
+        calcPaie();
+        await savePaie();
+        const sal = salaries[salaries.length - 1];
+        if (sal) setTimeout(() => robotSpeak(`Fiche de paie de ${sal.nom} enregistrée. Net à payer : ${fnPDF(sal.netAPayer)} francs CFA.`), 2000);
+      }
+    } catch (pe) {
+      robotSpeak("Je n'ai pas pu créer la fiche de paie. Reformulez s'il vous plaît.");
+    }
+    return;
+  }
+ 
+  // CREATE_IMMOB
+  if (reply.includes('###CREATE_IMMOB###')) {
+    const parts = reply.split('###CREATE_IMMOB###');
+    if (parts[0].trim()) robotSpeak(stripRobotVoiceText(parts[0].trim()));
+    try {
+      const jsonMatch = parts[1].trim().match(/(\{[\s\S]*\})/);
+      if (jsonMatch) {
+        const p = JSON.parse(jsonMatch[1]);
+        document.getElementById('immob-nom').value       = p.nom     || '';
+        document.getElementById('immob-valeur').value    = p.valeur  || 0;
+        document.getElementById('immob-categorie').value = p.cat     || '2442';
+        document.getElementById('immob-methode').value   = p.methode || 'lineaire';
+        document.getElementById('immob-date').value      = p.dateAcq || new Date().toISOString().split('T')[0];
+        document.getElementById('immob-ref').value       = p.ref     || '';
+        await saveImmob();
+        const im = immobilisations[immobilisations.length - 1];
+        if (im) setTimeout(() => robotSpeak(`L'immobilisation "${im.nom}" enregistrée. Dotation annuelle : ${fnPDF(im.dotAnnuelle)} francs CFA.`), 2000);
+      }
+    } catch (pe) {
+      robotSpeak("Je n'ai pas pu enregistrer l'immobilisation.");
+    }
+    return;
+  }
+ 
+  // SHOW_3D_JOURNAL
+  if (reply.includes('###SHOW_3D_JOURNAL###')) {
+    const parts = reply.split('###SHOW_3D_JOURNAL###');
+    let filtre  = 'all';
+    try {
+      const jsonMatch = parts[1]?.match(/(\{[\s\S]*?\})/);
+      if (jsonMatch) filtre = JSON.parse(jsonMatch[1]).filtre || 'all';
+    } catch (_) {}
+    const ecrsToShow = filtre === 'all' ? ecritures : ecritures.filter(e => e.journal === filtre);
+    const voiceText  = parts[0].trim() || `Je vous affiche le journal en trois dimensions.`;
+    robotSpeak(stripRobotVoiceText(voiceText));
+    setTimeout(() => showRobot3DJournal(ecrsToShow), 800);
+    return;
+  }
+ 
+  // NAVIGATE
+  if (reply.includes('###NAVIGATE###')) {
+    const parts = reply.split('###NAVIGATE###');
+    if (parts[0].trim()) robotSpeak(stripRobotVoiceText(parts[0].trim()));
+    try {
+      const jsonMatch = parts[1]?.match(/(\{[\s\S]*?\})/);
+      if (jsonMatch) {
+        const vue = JSON.parse(jsonMatch[1]).vue;
+        if (vue) setTimeout(() => { navigate(vue); closeRobot(); }, 1500);
+      }
+    } catch (_) {}
+    return;
+  }
+ 
+  // OPEN_URL
+  const urlAction = parseOpenUrlAction(reply);
+  if (urlAction) {
+    handleRobotOpenUrl(urlAction.url, urlAction.label, urlAction.texteBefore || '');
+    return;
+  }
+ 
+  // Réponse texte simple
+  robotSpeak(stripRobotVoiceText(reply));
+}
+ 
 // ABONNEMENT PREMIUM — Wave · Essai 12h
 // ══════════════════════════════════════════
 const TRIAL_DURATION_MS = 12 * 60 * 60 * 1000;
@@ -1916,6 +2666,7 @@ let ecrQueue = [],
   ecrQueueIdx = 0;
 let currentGroupId = null;
 let conversationHistory = [];
+let salaries = [];
 
 // ══════════════════════════════════════════
 // MOBILE SIDEBAR
@@ -4381,12 +5132,7 @@ async function sendToAI(context) {
     }
 
     // ══ ÉTAPE 2 : MISTRAL — fallback si toutes les clés Groq sont saturées ══
-    if (!data && MISTRAL_API_KEYS.length > 0) {
-      console.log('[COMEO] Groq épuisé → bascule Mistral');
-      toast('⚡ Basculement sur Mistral...', 'info');
-      const mistralData = await callMistral(conversationHistory, systemPrompt);
-      if (mistralData) data = mistralData;
-    }
+   
 
     // ══ AUCUN PROVIDER DISPONIBLE ══
     if (!data) {
@@ -6493,12 +7239,7 @@ ANALYSE AUTOMATIQUE :
     }
 
     // ══ ÉTAPE 2 : MISTRAL fallback ══
-    if (!data && MISTRAL_API_KEYS.length > 0) {
-      console.log('[COMEO Robot] Groq épuisé → Mistral');
-      const mData = await callMistral(robotConvHistory, systemRobot);
-      if (mData) data = mData;
-    }
-
+  
     if (!data) throw new Error('Tous les providers indisponibles');
     reply = data.choices?.[0]?.message?.content?.trim() || "Je n'ai pas pu répondre.";
 
@@ -8077,50 +8818,7 @@ function exportExcelAvance() {
   toast('✓ Excel (CSV) exporté', 'success');
 }
 
-async function callMistral(messages, systemPrompt) {
-  if (MISTRAL_API_KEYS.length === 0) return null;
 
-  for (let attempt = 0; attempt < MISTRAL_API_KEYS.length; attempt++) {
-    const key = MISTRAL_API_KEYS[(mistralKeyIdx + attempt) % MISTRAL_API_KEYS.length];
-    const model = MISTRAL_MODELS[attempt % MISTRAL_MODELS.length];
-
-    try {
-      if (attempt > 0) await new Promise((r) => setTimeout(r, 800 * attempt));
-
-      const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${key}`,
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: 6000,
-          temperature: 0.02,
-          top_p: 0.95,
-          messages: [{ role: 'system', content: systemPrompt }, ...messages],
-        }),
-      });
-
-      if (response.ok) {
-        mistralKeyIdx = (mistralKeyIdx + attempt) % MISTRAL_API_KEYS.length;
-        const data = await response.json();
-        console.log(`[COMEO] Mistral OK — modèle: ${model}`);
-        return data;
-      }
-
-      if (response.status === 429) {
-        console.warn(`[COMEO] Mistral clé ${attempt + 1} limitée → rotation`);
-        continue;
-      }
-    } catch (e) {
-      console.warn(`[COMEO] Mistral erreur: ${e.message}`);
-      continue;
-    }
-  }
-
-  return null; // Mistral épuisé
-}
 // ══════════════════════════════════════════
 
 
@@ -9844,13 +10542,23 @@ async function rejoindreCollab() {
     errEl.textContent = 'Erreur : ' + e.message;
   }
 }
-
+function ecouterAppelEntrant(ownerUid) {
+  const { onSnapshot, doc } = window._firebaseFirestore || {};
+  if (!onSnapshot) return;
+  onSnapshot(doc(window._db, 'video_calls', ownerUid), async (snap) => {
+    const d = snap.data();
+    if (d?.offer && !peerConnection) {
+      toast('📞 Appel entrant du propriétaire...', 'info');
+      await ouvrirAppelVideo();
+    }
+  });
+}
+window.ecouterAppelEntrant = ecouterAppelEntrant;
 async function chargerDonneesProprietaire(ownerUid) {
   const realUid = currentProfile.id;
   // On redirige currentProfile.id vers le propriétaire pour que toutes
   // les fonctions de chargement lisent depuis son profil Firestore
   currentProfile = { ...currentProfile, id: ownerUid, _collabMode: true, _realUid: realUid };
-
   // Mettre à jour l'en-tête avec le nom du propriétaire
   try {
     const ownerSnap = await window._fbGetDoc(window._fbDoc(window._db, 'profiles', ownerUid));
@@ -10537,3 +11245,8 @@ window.deleteEffet = deleteEffet;
 window.renderEffets = renderEffets;
 window.exportEffetsPDF = exportEffetsPDF;
 window.doLogin = doLogin;
+window.sendToAI          = sendToAI;
+window.handleRobotQuery  = handleRobotQuery;
+window.callGroqWithRotation = callGroqWithRotation;
+window.RequestQueue      = RequestQueue;
+window.loadServerConfig  = loadServerConfig;
