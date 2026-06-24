@@ -7459,18 +7459,8 @@ MISTRAL_MODELS = [
     'open-mistral-7b'
   ];
 
-// ── Supprimer ou commenter la fonction loadServerConfig() ──
-// async function loadServerConfig() { ... }  ← REMPLACER PAR :
 
-function loadServerConfig() {
-  serverConfigLoaded = true;
-  aiServiceAvailable = GROQ_API_KEYS.length > 0 || MISTRAL_API_KEYS.length > 0;
-  updateServiceAvailabilityUI();
-  console.log(
-    `[COMEO] Config locale — ${GROQ_API_KEYS.length} clé(s) Groq, ` +
-    `${MISTRAL_API_KEYS.length} clé(s) Mistral`
-  );
-}
+// ── La fonction loadServerConfig() est déjà déclarée plus haut (ligne 113) ──
 // EXPORT — FACTURE PDF (impression pro)
 // ══════════════════════════════════════════
 function buildFactureHTMLContent(fac) {
