@@ -2144,7 +2144,6 @@ function isOperationInProgress(context = 'chat') {
 function startAIOperation(context = 'chat') {
   const current = aiRequestsInProgress.get(context) || 0;
   aiRequestsInProgress.set(context, current + 1);
-  startAIOperation(context);
   updateOperationUI();
   console.log(`[PARALLEL] Début ${context} (total: ${current + 1})`);
 }
@@ -11022,7 +11021,8 @@ async function loadDeclFiscales() {
 // ════════════════════════════════════════════════════════════════════════════════
 // ✅ MODULE APPELS VIDÉO 3D INNOVANT — WebRTC + Three.js
 // ════════════════════════════════════════════════════════════════════════════════
-let videoCallActive = false, localStream = null, peerConnection = null, videoAppels = [];
+let videoCallActive = false, peerConnection = null, videoAppels = [];
+// Note: localStream is declared earlier in the file
 
 async function loadAppelsVideo() {
   try {
@@ -11116,3 +11116,102 @@ async function logAudit(action, module, detail, user) {
     console.error('Erreur audit:', e);
   }
 }
+
+// ══════════════════════════════════════════
+// EXPOSE FUNCTIONS TO GLOBAL SCOPE
+// Required because this file is loaded as type="module"
+// Module scope is isolated — onclick="fn()" in HTML needs window.fn
+// ══════════════════════════════════════════
+const __globalExports = [
+  'addFacLigne','addLigne','afficherDeclaration','afficherLettrage',
+  'autoSaveAllEcritures','autoSaveAllFromNotif','calcAmortissement','calcPaie',
+  'closeClientModal','closeExportModal','closeFactureModal','closeFournisseurModal',
+  'closeMobileSidebar','closeRobot','confirmWavePaymentManual','copierCodeCollab',
+  'dismissFillBanner','doExport','doForgotPassword','doLogin','doLogout','doRegister',
+  'exportAnalytiquePDF','exportAuditPDF','exportBalanceAgeePDF','exportBudgetPDF',
+  'exportBulletinPDF','exportDeclFiscalePDF','exportDeclarationPDF','exportEffetsPDF',
+  'exportFactureList','exportHistoriqueAppels','exportInventairePDF',
+  'exportRapprochementPDF','exportTAFIREpdf','exportTableauAmortissement',
+  'fermerCollabModal','genererCodeCollab','genererEcrituresCloture','goToSaisie',
+  'handleAiKey','hideMultiEcrBanner','hideSaisieNotif','importReleveBancaire',
+  'lancerLettrage','navigate','onClickTopValidate','openBudgetModal','openCentreModal',
+  'openClientModal','openCollabModal','openDeclTaxeModal','openDevisModal',
+  'openEffetModal','openExportModal','openFactureModal','openFournisseurModal',
+  'openImmobModal','openNouveau3DCall','openPaieModal','openRobot','openSocieteModal',
+  'openStockModal','openWavePayment','ouvrirAppelVideo','ouvrirNouvelExercice',
+  'previewFacturePDF','rejoindreCollab','renderBalance','renderBilan','renderClients',
+  'renderFactures','renderFournisseurs','renderGrandLivre','renderJournal',
+  'renderPlanComptable','resetBalanceFiltre','resetFactureFiltre','resetGLFiltre',
+  'resetJournalFiltre','revoquerTousCollab','saveBudget','saveCentre','saveClient',
+  'saveEffet','saveFacture','saveFournisseur','saveImmob','saveImputation','savePaie',
+  'saveSociete','saveStock','searchClientDrop','selectExport','sendToAI','shareScreen',
+  'skipToNextEcriture','switchTab','terminerAppel','terminerAppelVideo','toast',
+  'toggleCam','toggleMic','toggleMobileSidebar','updateBudgetAccountSuggest',
+  'updateExportOptions','updateFacTotaux','updateImmobCompte','updateImputMontant',
+  'updateStats','verifierCloture',
+  // Additional functions used in dynamically generated HTML
+  'selectAccount','selectAccountMulti','browseAccountClass','closeAccountDropdown',
+  'hideDropdown','updateAccountSuggest','updateAccountSuggestMulti',
+  'addLigneMulti','removeLigneMulti','removeEcritureFromQueue','updateMultiBlockBalance',
+  'removeLigne','removeFacLigne','toggleGL','deleteEcriture','deleteGroupe',
+  'convertirDevisEnFacture','marquerPayee','supprimerFacture','newFactureForClient',
+  'selectClientForFac','autoComptabiliserFacture','genererDotation',
+  'toggleRappr','toggleMobileSidebar','closeMobileSidebar',
+  'changerStatutEffet','deleteEffet','changerRole','quitterModeCollab',
+  'revoquerCollaborateurV2','ouvrirJoinCollabModal','ajouterExercice','switchSociete',
+  'openImputationModal','deleteCentre','genererCodeCollab',
+];
+
+// Assign each to window so onclick="" attributes can find them
+const __scope = { addFacLigne, addLigne, afficherDeclaration, afficherLettrage,
+  autoSaveAllEcritures, autoSaveAllFromNotif, calcAmortissement, calcPaie,
+  closeClientModal, closeExportModal, closeFactureModal, closeFournisseurModal,
+  closeMobileSidebar, closeRobot, doExport, doForgotPassword, doLogin, doLogout, doRegister,
+  exportAnalytiquePDF, exportAuditPDF, exportBalanceAgeePDF, exportBudgetPDF,
+  exportBulletinPDF, exportDeclarationPDF, exportEffetsPDF,
+  exportFactureList, exportInventairePDF,
+  exportRapprochementPDF, exportTAFIREpdf, exportTableauAmortissement,
+  fermerCollabModal, genererCodeCollab, genererEcrituresCloture, goToSaisie,
+  handleAiKey, hideMultiEcrBanner, hideSaisieNotif,
+  lancerLettrage, navigate, onClickTopValidate, openBudgetModal, openCentreModal,
+  openClientModal, openCollabModal, openDevisModal,
+  openEffetModal, openExportModal, openFactureModal, openFournisseurModal,
+  openImmobModal, openPaieModal, openRobot, openSocieteModal,
+  openStockModal, openWavePayment, ouvrirAppelVideo, ouvrirNouvelExercice,
+  rejoindreCollab, renderBalance, renderBilan, renderClients,
+  renderFactures, renderFournisseurs, renderGrandLivre, renderJournal,
+  renderPlanComptable, resetBalanceFiltre, resetFactureFiltre, resetGLFiltre,
+  resetJournalFiltre, revoquerTousCollab, saveBudget, saveCentre, saveClient,
+  saveEffet, saveFacture, saveFournisseur, saveImmob, saveImputation, savePaie,
+  saveSociete, saveStock, searchClientDrop, selectExport, sendToAI, shareScreen,
+  skipToNextEcriture, switchTab, terminerAppelVideo, toast,
+  toggleCam, toggleMic, toggleMobileSidebar, updateExportOptions,
+  updateFacTotaux, updateImmobCompte, updateImputMontant,
+  updateStats, verifierCloture,
+  selectAccount, selectAccountMulti, browseAccountClass, closeAccountDropdown,
+  hideDropdown, updateAccountSuggest, updateAccountSuggestMulti,
+  addLigneMulti, removeLigneMulti, removeEcritureFromQueue, updateMultiBlockBalance,
+  removeLigne, toggleGL, deleteEcriture, deleteGroupe,
+  convertirDevisEnFacture, marquerPayee, supprimerFacture, newFactureForClient,
+  selectClientForFac, autoComptabiliserFacture, genererDotation,
+  toggleRappr, changerStatutEffet, deleteEffet, changerRole, quitterModeCollab,
+  revoquerCollaborateurV2, ouvrirJoinCollabModal, ajouterExercice, switchSociete,
+  openImputationModal, deleteCentre, dismissFillBanner, copierCodeCollab,
+  removeFacLigne,
+};
+
+Object.assign(window, __scope);
+
+// Functions that may not exist yet — safe optional exports
+const __optional = ['confirmWavePaymentManual','exportDeclFiscalePDF','openDeclTaxeModal',
+  'openNouveau3DCall','exportHistoriqueAppels','terminerAppel','previewFacturePDF',
+  'autoSaveAllFromNotif','hideSaisieNotif','shareScreen',
+  'updateBudgetAccountSuggest','exportAuditPDF','exportBalanceAgeePDF',
+  'exportBudgetPDF','exportEffetsPDF','exportInventairePDF','exportRapprochementPDF',
+  'exportBulletinPDF','exportTableauAmortissement','exportTAFIREpdf',
+  'exportAnalytiquePDF','exportDeclarationPDF','afficherLettrage','afficherDeclaration',
+  'lancerLettrage','verifierCloture','genererEcrituresCloture','ouvrirNouvelExercice',
+];
+__optional.forEach(name => {
+  try { if (typeof eval(name) === 'function') window[name] = eval(name); } catch(e) {}
+});
