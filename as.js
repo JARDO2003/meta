@@ -4417,7 +4417,7 @@ const sendToAI = async function(context) {
   if (!requireSubscriptionAccess()) return;
 
   if (!isAiServiceReady()) {
-    appendMsg(context, 'ai', '⏳ ' + getAiUnavailableMessage());
+    appendMsg(context, 'ai', '⚠️ Aucune clé API Groq configurée. Ajoutez vos clés dans CC.html pour activer l\'assistant IA.');
     return;
   }
 
@@ -4599,7 +4599,12 @@ const sendToAI = async function(context) {
     conversationHistory.pop();
     aiServiceAvailable = false;
     updateServiceAvailabilityUI();
-    appendMsg(context, 'ai', '⏳ ' + getAiUnavailableMessage());
+    const errMsg = err?.groqMsg || (
+      GROQ_API_KEYS.length === 0
+        ? '⚠️ Aucune clé API Groq configurée. Ajoutez vos clés dans CC.html pour activer l\'assistant IA.'
+        : `❌ Erreur inattendue : ${err?.message || 'inconnue'}. Vérifiez vos clés dans CC.html.`
+    );
+    appendMsg(context, 'ai', errMsg);
   }
   isAILoading = false;
   if (sendBtnId) {
@@ -6318,8 +6323,9 @@ async function handleRobotQuery(query) {
   setRobotBubble('<span class="robot-thinking">…</span>');
 
   if (!isAiServiceReady()) {
-    robotSpeak(getAiUnavailableMessage(), { skipBubble: true });
-    setRobotBubble('<span class="service-msg-inline">⏳ ' + escapeHtml(getAiUnavailableMessage()) + '</span>');
+    const msg = '⚠️ Aucune clé API Groq configurée. Ajoutez vos clés dans CC.html.';
+    robotSpeak(msg, { skipBubble: true });
+    setRobotBubble('<span class="service-msg-inline">' + msg + '</span>');
     setRobotStatus('online');
     return;
   }
@@ -6760,8 +6766,11 @@ ANALYSE AUTOMATIQUE :
     console.warn('[COMEO Robot]', err);
     aiServiceAvailable = false;
     updateServiceAvailabilityUI();
-    robotSpeak(getAiUnavailableMessage(), { skipBubble: true });
-    setRobotBubble('<span class="service-msg-inline">⏳ ' + escapeHtml(getAiUnavailableMessage()) + '</span>');
+    const errMsg = GROQ_API_KEYS.length === 0
+      ? '⚠️ Aucune clé API configurée. Ajoutez vos clés dans CC.html.'
+      : `❌ Erreur : ${err?.message || 'inconnue'}. Vérifiez vos clés dans CC.html.`;
+    robotSpeak(errMsg, { skipBubble: true });
+    setRobotBubble('<span class="service-msg-inline">' + errMsg + '</span>');
   } finally {
     // Sécurité mobile : ne jamais rester bloqué sur « Réflexion… »
     setTimeout(() => {
