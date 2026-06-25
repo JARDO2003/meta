@@ -4605,7 +4605,7 @@ const sendToAI = async function(context) {
 
     // ══ TRAITEMENT DE LA RÉPONSE ══
     removeTyping(context, tid);
-    fullText = data.choices?.[0]?.message?.content || 'Pas de réponse.';
+    fullText = data.choices?.[0]?.message?.content || 'Pas de réponse. Demandez moi pourquoi je ne répond pas ';
     conversationHistory.push({ role: 'assistant', content: fullText });
 
     // ── Sauvegarder dans le cache si ce n'est pas une action ──
