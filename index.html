@@ -249,6 +249,13 @@
   <div class="nav-item" onclick="navigate('utilisateurs');closeMobileSidebar()"><span class="nav-icon">👥</span> Utilisateurs & Droits</div>
 </div>
 <div class="sb-section">
+  <div class="sb-title">RH & Paie</div>
+  <div class="nav-item" onclick="navigate('paie');closeMobileSidebar()"><span class="nav-icon">💳</span> Paie & Bulletins</div>
+  <div class="nav-item" onclick="navigate('tresorerie');closeMobileSidebar()"><span class="nav-icon">💰</span> Trésorerie + Réconciliation</div>
+  <div class="nav-item" onclick="navigate('taxes');closeMobileSidebar()"><span class="nav-icon">📋</span> Taxes & Déclarations</div>
+  <div class="nav-item" onclick="navigate('appels');closeMobileSidebar()"><span class="nav-icon">🎥</span> Appels vidéo 3D</div>
+</div>
+<div class="sb-section">
   <div class="sb-title">Référentiel</div>
   <div class="nav-item" onclick="navigate('plancomptable');closeMobileSidebar()"><span class="nav-icon">⊙</span> Plan SYSCOHADA</div>
 </div>
@@ -1064,6 +1071,67 @@
       </div>
       <div id="utilisateursContent">
         <div class="empty-state"><div class="icon">👥</div><p>Chargement de l'équipe…</p></div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════ TAXES & DÉCLARATIONS FISCALES ═══════════════════ -->
+    <div class="view" id="view-taxes">
+      <div class="ph">
+        <div><h1>Taxes & Déclarations</h1><p>TVA · IRG · IS · Déclarations mensuelles/annuelles</p></div>
+        <div class="ph-actions">
+          <button class="btn btn-sm-wire" onclick="exportDeclFiscalePDF()">↓ Décl. PDF</button>
+          <button class="btn btn-ink" onclick="openDeclTaxeModal()">+ Déclarer TVA</button>
+        </div>
+      </div>
+      <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+        <div class="kpi"><div class="kpi-label">TVA collectée</div><div class="kpi-value" id="tax-kpi-tva-coll" style="color:var(--warm)">0</div><div class="kpi-sub">FCFA</div></div>
+        <div class="kpi"><div class="kpi-label">TVA déductible</div><div class="kpi-value" id="tax-kpi-tva-deduct" style="color:var(--blue)">0</div><div class="kpi-sub">FCFA</div></div>
+        <div class="kpi"><div class="kpi-label">TVA nette</div><div class="kpi-value" id="tax-kpi-tva-net" style="color:var(--rust)">0</div><div class="kpi-sub">à payer</div></div>
+        <div class="kpi"><div class="kpi-label">Déclarations</div><div class="kpi-value" id="tax-kpi-decls" style="color:var(--green)">0</div><div class="kpi-sub">soumises</div></div>
+      </div>
+      <div class="card" id="taxesContent">
+        <div class="empty-state"><div class="icon">📋</div><p>Aucune déclaration fiscale. Déclarez votre TVA.</p></div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════ APPELS VIDÉO 3D ═══════════════════ -->
+    <div class="view" id="view-appels">
+      <div class="ph">
+        <div><h1>Appels vidéo 3D</h1><p>Communicat vidéo innovante · Partage d'écran · Historique</p></div>
+        <div class="ph-actions">
+          <button class="btn btn-ink" onclick="openNouveau3DCall()">🎥 Nouvel appel 3D</button>
+          <button class="btn btn-sm-wire" onclick="exportHistoriqueAppels()">↓ Historique</button>
+        </div>
+      </div>
+      <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+        <div class="kpi"><div class="kpi-label">Appels</div><div class="kpi-value" id="video-kpi-total" style="color:var(--warm)">0</div><div class="kpi-sub">total</div></div>
+        <div class="kpi"><div class="kpi-label">Durée moyenne</div><div class="kpi-value" id="video-kpi-durée" style="color:var(--blue)">0:00</div><div class="kpi-sub">minutes</div></div>
+        <div class="kpi"><div class="kpi-label">Participants</div><div class="kpi-value" id="video-kpi-users" style="color:var(--green)">0</div><div class="kpi-sub">connectés</div></div>
+        <div class="kpi"><div class="kpi-label">Cette session</div><div class="kpi-value" id="video-kpi-session" style="color:var(--muted)">—</div><div class="kpi-sub">durée</div></div>
+      </div>
+      <div class="card" id="appealsContent">
+        <div id="videoCallPanel" style="display:none;padding:20px;background:rgba(34,197,94,.08);border-radius:10px;margin-bottom:16px">
+          <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px">
+            <div style="width:60px;height:60px;background:var(--surface2);border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid var(--warm)">
+              <span style="font-size:24px">📹</span>
+            </div>
+            <div>
+              <div style="font-weight:600;font-size:14px">Appel vidéo en cours</div>
+              <div style="font-size:12px;color:var(--muted)" id="video-duration">00:00</div>
+            </div>
+            <button onclick="terminerAppel()" style="margin-left:auto;background:var(--rust);color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer">Terminer</button>
+          </div>
+          <div id="videoContainer" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+            <video id="localVideo" autoplay muted style="width:100%;border-radius:6px;background:var(--surface2)"></video>
+            <video id="remoteVideo" autoplay style="width:100%;border-radius:6px;background:var(--surface2)"></video>
+          </div>
+          <div style="display:flex;gap:8px;justify-content:center">
+            <button onclick="toggleMic()" style="padding:10px 14px;background:var(--surface2);border:1px solid var(--line);border-radius:6px;cursor:pointer">🎤 Micro</button>
+            <button onclick="toggleCam()" style="padding:10px 14px;background:var(--surface2);border:1px solid var(--line);border-radius:6px;cursor:pointer">📹 Caméra</button>
+            <button onclick="shareScreen()" style="padding:10px 14px;background:var(--surface2);border:1px solid var(--line);border-radius:6px;cursor:pointer">🖥️ Partager</button>
+          </div>
+        </div>
+        <div class="empty-state"><div class="icon">🎥</div><p>Aucun appel actif. Cliquez sur "Nouvel appel 3D" pour commencer.</p></div>
       </div>
     </div>
 
