@@ -97,13 +97,14 @@ document.dispatchEvent(new Event('firebase-ready'));
 // Les clés API Groq, Mistral et l'ordre des modèles sont gérés via server.html
 // JAMAIS de clé API en dur dans ce fichier
 // ══════════════════════════════════════════
-let GROQ_API_KEYS = [];    // Chargées depuis server_config/groq_keys
+let GROQ_API_KEYS = [];    // Chargées depuis server_config/groq_keys (ou CC.html)
 let GROQ_MODELS = [];      // Chargées depuis server_config/models
-let MISTRAL_API_KEYS = []; // Chargées depuis server_config/mistral_keys
-let MISTRAL_MODELS = [];   // Chargées depuis server_config/mistral_models
 let groqKeyIdx = 0;        // Index rotation clés Groq
 let groqModelIdx = 0;      // Index rotation modèles Groq
-let mistralKeyIdx = 0;     // Index rotation clés Mistral
+// File d'attente : requêtes en attente d'une clé libre
+const groqQueue = [];
+// État d'occupation de chaque clé : groqKeyBusy[i] = true si la clé i est en cours d'utilisation
+let groqKeyBusy = [];
 let serverConfigLoaded = false;
 
 // ── Cache mémoire local (session) — évite les allers-retours Firestore ──
@@ -112,11 +113,9 @@ const AI_CACHE_MAX = 500;        // maximum d'entrées en mémoire
 
 async function loadServerConfig() {
   try {
-    const [keysSnap, modelsSnap, mistralKeysSnap, mistralModelsSnap] = await Promise.all([
+    const [keysSnap, modelsSnap] = await Promise.all([
       getDoc(doc(db, 'server_config', 'groq_keys')),
       getDoc(doc(db, 'server_config', 'models')),
-      getDoc(doc(db, 'server_config', 'mistral_keys')),
-      getDoc(doc(db, 'server_config', 'mistral_models')),
     ]);
 
     if (keysSnap.exists()) {
@@ -128,37 +127,22 @@ async function loadServerConfig() {
       GROQ_MODELS = modelsSnap.data().list || [];
     }
 
-    if (mistralKeysSnap.exists()) {
-      const rawMistral = mistralKeysSnap.data().keys || [];
-      MISTRAL_API_KEYS = rawMistral.map((k) => k.value).filter(Boolean);
-    }
-
-    if (mistralModelsSnap.exists()) {
-      MISTRAL_MODELS = mistralModelsSnap.data().list || [];
-    }
-
     // Valeurs par défaut si Firestore vide
     if (GROQ_MODELS.length === 0) {
       GROQ_MODELS = ['llama-3.3-70b-versatile', 'qwen/qwen3-32b', 'meta-llama/llama-4-scout-17b-16e-instruct'];
     }
-    if (MISTRAL_MODELS.length === 0) {
-      MISTRAL_MODELS = ['mistral-small-latest', 'open-mistral-7b'];
-    }
 
+    groqKeyBusy = new Array(GROQ_API_KEYS.length).fill(false);
     serverConfigLoaded = true;
-    aiServiceAvailable = GROQ_API_KEYS.length > 0 || MISTRAL_API_KEYS.length > 0;
+    aiServiceAvailable = GROQ_API_KEYS.length > 0;
     updateServiceAvailabilityUI();
-    console.log(
-      `[COMEO] Config chargée — ${GROQ_API_KEYS.length} clé(s) Groq, ` +
-      `${MISTRAL_API_KEYS.length} clé(s) Mistral, ${GROQ_MODELS.length} modèle(s) Groq`
-    );
+    console.log(`[COMEO] Config chargée — ${GROQ_API_KEYS.length} clé(s) Groq, ${GROQ_MODELS.length} modèle(s)`);
   } catch (e) {
     console.warn('[COMEO] Erreur chargement config serveur :', e.message);
     aiServiceAvailable = false;
     serverConfigLoaded = true;
     updateServiceAvailabilityUI();
     GROQ_MODELS = ['llama-3.3-70b-versatile', 'qwen/qwen3-32b', 'meta-llama/llama-4-scout-17b-16e-instruct'];
-    MISTRAL_MODELS = ['mistral-small-latest', 'open-mistral-7b'];
   }
 }
 
@@ -325,6 +309,7 @@ function updateServiceAvailabilityUI() {
   const banner = document.getElementById('serviceUnavailableBanner');
   if (!banner) return;
   const show = !aiServiceAvailable || GROQ_API_KEYS.length === 0;
+
   banner.style.display = show ? 'flex' : 'none';
   banner.setAttribute('aria-hidden', show ? 'false' : 'true');
 }
@@ -335,6 +320,119 @@ function getAiUnavailableMessage() {
 
 function isAiServiceReady() {
   return aiServiceAvailable && GROQ_API_KEYS.length > 0;
+}
+
+// ══════════════════════════════════════════
+// SYSTÈME DE FILE D'ATTENTE GROQ — Multi-clés, réponse garantie à chaque utilisateur
+// ══════════════════════════════════════════
+
+/**
+ * Acquiert une clé Groq libre. Si toutes sont occupées, attend qu'une se libère.
+ * Retourne l'index de la clé acquise.
+ */
+function acquireGroqKey() {
+  return new Promise((resolve) => {
+    function tryAcquire() {
+      // Chercher une clé libre
+      for (let i = 0; i < GROQ_API_KEYS.length; i++) {
+        const idx = (groqKeyIdx + i) % GROQ_API_KEYS.length;
+        if (!groqKeyBusy[idx]) {
+          groqKeyBusy[idx] = true;
+          groqKeyIdx = (idx + 1) % GROQ_API_KEYS.length; // prochaine fois on commence après
+          console.log(`[COMEO Queue] ✅ Clé ${idx + 1}/${GROQ_API_KEYS.length} acquise`);
+          resolve(idx);
+          return;
+        }
+      }
+      // Toutes occupées → mettre en file et réessayer dès qu'une se libère
+      groqQueue.push(tryAcquire);
+    }
+    tryAcquire();
+  });
+}
+
+/**
+ * Libère une clé Groq et réveille le prochain en attente si besoin.
+ */
+function releaseGroqKey(idx) {
+  groqKeyBusy[idx] = false;
+  console.log(`[COMEO Queue] 🔓 Clé ${idx + 1}/${GROQ_API_KEYS.length} libérée`);
+  if (groqQueue.length > 0) {
+    const next = groqQueue.shift();
+    next();
+  }
+}
+
+/**
+ * Appel Groq avec file d'attente + rotation modèles.
+ * Réessaie automatiquement sur les autres clés en cas de 429.
+ * Retourne { data, keyIdx } ou null si toutes les clés échouent.
+ */
+async function callGroqQueued(messages, systemPrompt, maxTokens = 6000, temperature = 0.02) {
+  if (GROQ_API_KEYS.length === 0) return null;
+
+  // Tentative sur la clé acquise, puis fallback sur les autres
+  const triedKeys = new Set();
+  let keyIdx = await acquireGroqKey();
+
+  try {
+    while (triedKeys.size < GROQ_API_KEYS.length) {
+      triedKeys.add(keyIdx);
+      const model = GROQ_MODELS[groqModelIdx % GROQ_MODELS.length];
+      try {
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${GROQ_API_KEYS[keyIdx]}`,
+          },
+          body: JSON.stringify({
+            model,
+            max_tokens: maxTokens,
+            temperature,
+            top_p: 0.95,
+            messages: [{ role: 'system', content: systemPrompt }, ...messages],
+          }),
+        });
+
+        if (response.ok) {
+          groqModelIdx = (groqModelIdx + 1) % GROQ_MODELS.length;
+          const data = await response.json();
+          console.log(`[COMEO Queue] ✅ Groq OK — clé ${keyIdx + 1}, modèle: ${model}`);
+          return { data, keyIdx };
+        }
+
+        const status = response.status;
+        if (status === 429) {
+          console.warn(`[COMEO Queue] Clé ${keyIdx + 1} saturée (429) → chercher une autre clé libre`);
+          // Libérer cette clé et acquérir la suivante disponible
+          releaseGroqKey(keyIdx);
+          // Chercher une autre clé non encore essayée
+          let found = false;
+          for (let i = 0; i < GROQ_API_KEYS.length; i++) {
+            const candidate = (keyIdx + 1 + i) % GROQ_API_KEYS.length;
+            if (!triedKeys.has(candidate)) {
+              keyIdx = await acquireGroqKey();
+              found = true;
+              break;
+            }
+          }
+          if (!found) return null; // toutes les clés ont été essayées
+          continue;
+        }
+        // Autres erreurs : on abandonne
+        console.warn(`[COMEO Queue] Erreur Groq ${status}`);
+        return null;
+      } catch (e) {
+        console.warn(`[COMEO Queue] Exception: ${e.message}`);
+        return null;
+      }
+    }
+    return null;
+  } finally {
+    // Toujours libérer la clé courante
+    if (keyIdx !== undefined && groqKeyBusy[keyIdx]) releaseGroqKey(keyIdx);
+  }
 }
 
 function requireSubscriptionAccess() {
@@ -4311,7 +4409,6 @@ const sendToAI = async function(context) {
   if (conversationHistory.length > 20) conversationHistory = conversationHistory.slice(-20);
 
   try {
-    let lastError = null;
     let data = null;
     let fullText = null;
 
@@ -4339,63 +4436,23 @@ const sendToAI = async function(context) {
       }
     }
 
-    // ══ ÉTAPE 1 : GROQ — rotation automatique sur toutes les clés ══
+    // ══ ÉTAPE 1 : GROQ — file d'attente multi-clés ══
+    let data = null;
     if (GROQ_API_KEYS.length > 0) {
-      const totalAttempts = GROQ_API_KEYS.length * GROQ_MODELS.length;
-      for (let attempt = 0; attempt < Math.min(totalAttempts, 6); attempt++) {
-        const keyToUse = GROQ_API_KEYS[(groqKeyIdx + attempt) % GROQ_API_KEYS.length];
-        const modelToUse = GROQ_MODELS[(groqModelIdx + Math.floor(attempt / GROQ_API_KEYS.length)) % GROQ_MODELS.length];
-        try {
-          if (attempt > 0) await new Promise((r) => setTimeout(r, 800 * attempt));
-          const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${keyToUse}`,
-            },
-            body: JSON.stringify({
-              model: modelToUse,
-              max_tokens: 6000,
-              temperature: 0.02,
-              top_p: 0.95,
-              messages: [{ role: 'system', content: systemPrompt }, ...conversationHistory],
-            }),
-          });
-          if (response.ok) {
-            groqKeyIdx = (groqKeyIdx + attempt) % GROQ_API_KEYS.length;
-            groqModelIdx = (groqModelIdx + Math.floor(attempt / GROQ_API_KEYS.length)) % GROQ_MODELS.length;
-            data = await response.json();
-            console.log(`[COMEO] ✅ Groq OK — clé ${groqKeyIdx + 1}/${GROQ_API_KEYS.length}, modèle: ${modelToUse}`);
-            break;
-          }
-          const errData = await response.json().catch(() => ({}));
-          lastError = errData.error?.message || 'Erreur ' + response.status;
-          if (response.status === 429) {
-            console.warn(`[COMEO] Groq clé ${attempt + 1} saturée (429) → rotation vers clé suivante`);
-            continue;
-          }
-          if (response.status === 401 || response.status === 403) {
-            console.warn(`[COMEO] Groq clé ${attempt + 1} invalide (${response.status})`);
-            break;
-          }
-        } catch (e) {
-          lastError = e.message;
-          if (attempt > 0) await new Promise((r) => setTimeout(r, 600));
-        }
+      // Si toutes les clés sont occupées, avertir l'utilisateur qu'il attend
+      const allBusy = groqKeyBusy.length > 0 && groqKeyBusy.every(Boolean);
+      if (allBusy) {
+        // Mettre à jour le message de l'indicateur de frappe pour patienter
+        const typingEl = document.getElementById(tid);
+        if (typingEl) typingEl.innerHTML = '⏳ <em>IA en réflexion, veuillez patienter…</em>';
       }
-    }
-
-    // ══ ÉTAPE 2 : MISTRAL — fallback si toutes les clés Groq sont saturées ══
-    if (!data && MISTRAL_API_KEYS.length > 0) {
-      console.log('[COMEO] Groq épuisé → bascule Mistral');
-      toast('⚡ Basculement sur Mistral...', 'info');
-      const mistralData = await callMistral(conversationHistory, systemPrompt);
-      if (mistralData) data = mistralData;
+      const result = await callGroqQueued(conversationHistory, systemPrompt, 6000, 0.02);
+      if (result) data = result.data;
     }
 
     // ══ AUCUN PROVIDER DISPONIBLE ══
     if (!data) {
-      throw new Error(lastError || 'Tous les providers sont indisponibles');
+      throw new Error('Toutes les clés Groq sont indisponibles');
     }
 
     // ══ TRAITEMENT DE LA RÉPONSE ══
@@ -6469,39 +6526,13 @@ ANALYSE AUTOMATIQUE :
       }
     }
 
-    // ══ ÉTAPE 1 : GROQ — rotation sur toutes les clés ══
+    // ══ ÉTAPE 1 : GROQ — file d'attente multi-clés ══
     let data = null;
-    for (let i = 0; i < Math.min(GROQ_API_KEYS.length * 2, 6); i++) {
-      const key = GROQ_API_KEYS[(groqKeyIdx + i) % GROQ_API_KEYS.length];
-      const model = GROQ_MODELS[groqModelIdx % GROQ_MODELS.length];
-      try {
-        if (i > 0) await new Promise((r) => setTimeout(r, 600 * i));
-        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
-          body: JSON.stringify({
-            model,
-            max_tokens: 420,
-            temperature: 0.62,
-            top_p: 0.92,
-            messages: [{ role: 'system', content: systemRobot }, ...robotConvHistory],
-          }),
-        });
-        if (response.ok) {
-          groqKeyIdx = (groqKeyIdx + i) % GROQ_API_KEYS.length;
-          data = await response.json();
-          console.log(`[COMEO Robot] ✅ Groq OK — clé ${groqKeyIdx + 1}`);
-          break;
-        }
-        if (response.status === 429) { console.warn(`[COMEO Robot] Groq clé ${i+1} saturée → rotation`); continue; }
-      } catch (e) { continue; }
-    }
-
-    // ══ ÉTAPE 2 : MISTRAL fallback ══
-    if (!data && MISTRAL_API_KEYS.length > 0) {
-      console.log('[COMEO Robot] Groq épuisé → Mistral');
-      const mData = await callMistral(robotConvHistory, systemRobot);
-      if (mData) data = mData;
+    if (GROQ_API_KEYS.length > 0) {
+      const allBusy = groqKeyBusy.length > 0 && groqKeyBusy.every(Boolean);
+      if (allBusy) setRobotBubble('⏳ IA en réflexion, veuillez patienter…');
+      const result = await callGroqQueued(robotConvHistory, systemRobot, 420, 0.62);
+      if (result) data = result.data;
     }
 
     if (!data) throw new Error('Tous les providers indisponibles');
@@ -7438,7 +7469,7 @@ function updateExportOptions() {
 // ══════════════════════════════════════════
 
 // ══════════════════════════════════════════
-// CONFIGURATION SERVEUR — Clés API en dur (mode local)
+// CONFIGURATION SERVEUR — Clés API en dur (mode local / CC.html)
 // Généré le 23/06/2026 19:30:55
 // ══════════════════════════════════════════
 
@@ -7452,15 +7483,48 @@ GROQ_MODELS = [
     'meta-llama/llama-4-scout-17b-16e-instruct'
   ];
 
-MISTRAL_API_KEYS = [];
-
-MISTRAL_MODELS = [
-    'mistral-small-latest',
-    'open-mistral-7b'
-  ];
+// Initialiser le tableau d'occupation des clés
+groqKeyBusy = new Array(GROQ_API_KEYS.length).fill(false);
 
 
 // ── La fonction loadServerConfig() est déjà déclarée plus haut (ligne 113) ──
+
+// ══ API PUBLIQUE — Gestion des clés Groq depuis CC.html ══
+/**
+ * Appelée depuis CC.html pour définir / recharger les clés Groq.
+ * Peut être appelée à tout moment (y compris après le chargement de la page).
+ * @param {string[]} keys  Tableau de clés API Groq
+ * @param {string[]} [models] Optionnel : liste de modèles Groq
+ */
+window.setGroqKeysFromCC = function(keys, models) {
+  GROQ_API_KEYS = (keys || []).filter(Boolean);
+  groqKeyBusy = new Array(GROQ_API_KEYS.length).fill(false);
+  if (models && models.length > 0) GROQ_MODELS = models;
+  aiServiceAvailable = GROQ_API_KEYS.length > 0;
+  updateServiceAvailabilityUI();
+  console.log(`[COMEO CC] ${GROQ_API_KEYS.length} clé(s) Groq chargée(s) depuis CC.html`);
+  // Sauvegarder dans Firestore pour persistance
+  if (window._fbReady) {
+    const entries = GROQ_API_KEYS.map((v, i) => ({ id: i + 1, value: v }));
+    window._fbSetDoc(window._fbDoc(window._db, 'server_config', 'groq_keys'), { keys: entries }, { merge: false })
+      .then(() => console.log('[COMEO CC] Clés sauvegardées dans Firestore'))
+      .catch((e) => console.warn('[COMEO CC] Erreur sauvegarde Firestore:', e.message));
+    if (models && models.length > 0) {
+      window._fbSetDoc(window._fbDoc(window._db, 'server_config', 'models'), { list: models }, { merge: false }).catch(() => {});
+    }
+  }
+};
+
+/**
+ * Retourne l'état actuel des clés (pour l'affichage dans CC.html).
+ */
+window.getGroqKeysStatus = function() {
+  return GROQ_API_KEYS.map((k, i) => ({
+    index: i,
+    key: k.substring(0, 8) + '…' + k.slice(-4),
+    busy: groqKeyBusy[i] || false,
+  }));
+};
 // EXPORT — FACTURE PDF (impression pro)
 // ══════════════════════════════════════════
 function buildFactureHTMLContent(fac) {
@@ -8107,50 +8171,6 @@ function exportExcelAvance() {
   toast('✓ Excel (CSV) exporté', 'success');
 }
 
-async function callMistral(messages, systemPrompt) {
-  if (MISTRAL_API_KEYS.length === 0) return null;
-
-  for (let attempt = 0; attempt < MISTRAL_API_KEYS.length; attempt++) {
-    const key = MISTRAL_API_KEYS[(mistralKeyIdx + attempt) % MISTRAL_API_KEYS.length];
-    const model = MISTRAL_MODELS[attempt % MISTRAL_MODELS.length];
-
-    try {
-      if (attempt > 0) await new Promise((r) => setTimeout(r, 800 * attempt));
-
-      const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${key}`,
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: 6000,
-          temperature: 0.02,
-          top_p: 0.95,
-          messages: [{ role: 'system', content: systemPrompt }, ...messages],
-        }),
-      });
-
-      if (response.ok) {
-        mistralKeyIdx = (mistralKeyIdx + attempt) % MISTRAL_API_KEYS.length;
-        const data = await response.json();
-        console.log(`[COMEO] Mistral OK — modèle: ${model}`);
-        return data;
-      }
-
-      if (response.status === 429) {
-        console.warn(`[COMEO] Mistral clé ${attempt + 1} limitée → rotation`);
-        continue;
-      }
-    } catch (e) {
-      console.warn(`[COMEO] Mistral erreur: ${e.message}`);
-      continue;
-    }
-  }
-
-  return null; // Mistral épuisé
-}
 // ══════════════════════════════════════════
 
 
