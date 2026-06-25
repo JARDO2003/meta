@@ -97,7 +97,7 @@ document.dispatchEvent(new Event('firebase-ready'));
 // Les clés API Groq, Mistral et l'ordre des modèles sont gérés via server.html
 // JAMAIS de clé API en dur dans ce fichier
 // ══════════════════════════════════════════
-let GROQ_API_KEYS = ['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'];    // Clé API Groq directe
+let GROQ_API_KEYS = ['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'];    // Clé API Groq directe
 let GROQ_MODELS = [];      // Chargées depuis server_config/models
 let groqKeyIdx = 0;        // Index rotation clés Groq
 let groqModelIdx = 0;      // Index rotation modèles Groq
