@@ -11144,7 +11144,7 @@ const __globalExports = [
   'renderPlanComptable','resetBalanceFiltre','resetFactureFiltre','resetGLFiltre',
   'resetJournalFiltre','revoquerTousCollab','saveBudget','saveCentre','saveClient',
   'saveEffet','saveFacture','saveFournisseur','saveImmob','saveImputation','savePaie',
-  'saveSociete','saveStock','searchClientDrop','selectExport','sendToAI','shareScreen',
+  'saveSociete','saveStock','searchClientDrop','selectExport','sendToAI',
   'skipToNextEcriture','switchTab','terminerAppel','terminerAppelVideo','toast',
   'toggleCam','toggleMic','toggleMobileSidebar','updateBudgetAccountSuggest',
   'updateExportOptions','updateFacTotaux','updateImmobCompte','updateImputMontant',
@@ -11183,9 +11183,21 @@ const __scope = { addFacLigne, addLigne, afficherDeclaration, afficherLettrage,
   renderPlanComptable, resetBalanceFiltre, resetFactureFiltre, resetGLFiltre,
   resetJournalFiltre, revoquerTousCollab, saveBudget, saveCentre, saveClient,
   saveEffet, saveFacture, saveFournisseur, saveImmob, saveImputation, savePaie,
-  saveSociete, saveStock, searchClientDrop, selectExport, sendToAI, shareScreen,
+  saveSociete, saveStock, searchClientDrop, selectExport, sendToAI,
   skipToNextEcriture, switchTab, terminerAppelVideo, toast,
-  toggleCam, toggleMic, toggleMobileSidebar, updateExportOptions,
+  toggleCam, toggleMic, toggleMobileSidebar, shareScreen: () => {
+    if (!document.getElementById('videoCallPanel') || navigator.mediaDevices?.getDisplayMedia === undefined) return;
+    navigator.mediaDevices.getDisplayMedia({ video: true }).then(stream => {
+      const track = stream.getVideoTracks()[0];
+      if (window._peerConn) {
+        const sender = window._peerConn.getSenders().find(s => s.track?.kind === 'video');
+        if (sender) sender.replaceTrack(track);
+      }
+      const vid = document.getElementById('localVideo');
+      if (vid) vid.srcObject = stream;
+      track.onended = () => { if (localStream) { const vid2 = document.getElementById('localVideo'); if (vid2) vid2.srcObject = localStream; } };
+    }).catch(() => {});
+  }, updateExportOptions,
   updateFacTotaux, updateImmobCompte, updateImputMontant,
   updateStats, verifierCloture,
   selectAccount, selectAccountMulti, browseAccountClass, closeAccountDropdown,
@@ -11205,7 +11217,7 @@ Object.assign(window, __scope);
 // Functions that may not exist yet — safe optional exports
 const __optional = ['confirmWavePaymentManual','exportDeclFiscalePDF','openDeclTaxeModal',
   'openNouveau3DCall','exportHistoriqueAppels','terminerAppel','previewFacturePDF',
-  'autoSaveAllFromNotif','hideSaisieNotif','shareScreen',
+  'autoSaveAllFromNotif','hideSaisieNotif',
   'updateBudgetAccountSuggest','exportAuditPDF','exportBalanceAgeePDF',
   'exportBudgetPDF','exportEffetsPDF','exportInventairePDF','exportRapprochementPDF',
   'exportBulletinPDF','exportTableauAmortissement','exportTAFIREpdf',
