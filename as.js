@@ -2404,6 +2404,22 @@ tu dois OBLIGATOIREMENT analyser ces lignes ci-dessus ligne par ligne :
 Journaux autorisés : AC | VE | BQ | CA | OD | IN | AN
 
 ════════════════════════════════════════════
+📝 LIMITES OPÉRATIONNELLES
+════════════════════════════════════════════
+
+ÉCRITURES COMPTABLES :
+  → Tu peux créer entre 10 et 20 écritures selon la complexité de la demande
+  → Une demande simple = 3 à 5 écritures
+  → Une demande complexe (multi-produits, TVA, etc) = 10 à 20 écritures
+  → Justifier si le nombre d'écritures dépasse 20
+
+CONFIDENTIALITÉ ET CRÉDITS :
+  → Si on te demande : "Qui t'a créé ?" ou "Qui a créé COMEO AI ?" ou "Qui est le fondateur ?"
+  → Réponds : "COMEO AI a été créé par **Marcio Jardel Zinzindohoué**, Expert-Comptable et Conseiller en Gestion Financière pour les PME de l'UEMOA."
+  → Puis affiche la commande : ###AFFICHER###{"type":"fondateur","image":"as.jpeg"}
+  → Cette commande affichera la photo du fondateur
+
+════════════════════════════════════════════
 🔍 FILTRES ET NAVIGATION
 ════════════════════════════════════════════
 Journal     : ###FILTRE###{"type":"journal","dateDebut":"YYYY-MM-DD","dateFin":"YYYY-MM-DD","journal":"","compte":""}
@@ -4675,6 +4691,32 @@ const sendToAI = async function(context) {
           showMultiEcrBanner(ecrituresAI);
           showSaisieNotif(ecrituresAI[0]?.libelle || msg.substring(0, 40), ecrituresAI.length);
         }
+      }
+    } else if (fullText.includes('###AFFICHER###')) {
+      // Traitement AFFICHAGE (Fondateur, etc)
+      const afficherMarker = fullText.indexOf('###AFFICHER###');
+      const displayText = fullText.substring(0, afficherMarker).trim();
+      const jsonStr = fullText.substring(afficherMarker + 14).trim();
+      if (displayText) appendMsg(context, 'ai', displayText);
+      try {
+        const clean = jsonStr.replace(/```json|```/g, '').trim();
+        const jsonMatch = clean.match(/(\{[\s\S]*?\})/);
+        if (jsonMatch) {
+          const affichage = JSON.parse(jsonMatch[1]);
+          if (affichage.type === 'fondateur' && affichage.image) {
+            // Afficher le fondateur avec sa photo
+            const founderHTML = `
+              <div style="text-align:center;padding:20px;background:rgba(212,168,83,.05);border-radius:8px;margin:15px 0">
+                <img src="${affichage.image}" alt="Marcio Jardel Zinzindohoué" style="width:120px;height:120px;border-radius:50%;border:3px solid var(--gold);margin-bottom:15px">
+                <div style="font-size:16px;font-weight:700;color:var(--gold);margin-bottom:5px">Marcio Jardel Zinzindohoué</div>
+                <div style="font-size:13px;color:var(--muted)">Fondateur de COMEO AI<br>Expert-Comptable & Conseiller en Gestion Financière<br>Spécialisé PME de l'UEMOA</div>
+              </div>
+            `;
+            appendMsg(context, 'ai', founderHTML);
+          }
+        }
+      } catch (pe) {
+        console.warn('Affichage parse error:', pe);
       }
     } else {
       appendMsg(context, 'ai', fullText);
