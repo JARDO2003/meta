@@ -7530,13 +7530,11 @@ function updateExportOptions() {
 // ══════════════════════════════════════════
 
 GROQ_API_KEYS = [
-    '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'
+    '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'
   ];
 
 GROQ_MODELS = [
-    'llama-3.3-70b-versatile',
-    'qwen/qwen3-32b',
-    'meta-llama/llama-4-scout-17b-16e-instruct'
+    'auto'
   ];
 
 // Initialiser le tableau d'occupation des clés
