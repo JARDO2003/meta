@@ -2122,7 +2122,69 @@ let ecritures = [],
   lignes = [],
   pieceCounter = 1,
   currentProfile = null,
-  isAILoading = false;
+  isAILoading = false;  // Gardé pour compatibilité
+
+// ══════════════════════════════════════════
+// OPÉRATIONS PARALLÈLES — Saisie + IA simultanées
+// ══════════════════════════════════════════
+let aiRequestsInProgress = new Map();  // Suivi des requêtes IA par contexte
+let saisieEditInProgress = false;      // Flag pour édition saisie
+
+/**
+ * Vérifier si une opération spécifique est en cours
+ * @param {string} context - 'chat', 'saisie', etc.
+ */
+function isOperationInProgress(context = 'chat') {
+  return aiRequestsInProgress.has(context) && aiRequestsInProgress.get(context) > 0;
+}
+
+/**
+ * Enregistrer le début d'une opération IA
+ */
+function startAIOperation(context = 'chat') {
+  const current = aiRequestsInProgress.get(context) || 0;
+  aiRequestsInProgress.set(context, current + 1);
+  startAIOperation(context);
+  updateOperationUI();
+  console.log(`[PARALLEL] Début ${context} (total: ${current + 1})`);
+}
+
+/**
+ * Enregistrer la fin d'une opération IA
+ */
+function endAIOperation(context = 'chat') {
+  const current = aiRequestsInProgress.get(context) || 0;
+  if (current > 1) {
+    aiRequestsInProgress.set(context, current - 1);
+  } else {
+    aiRequestsInProgress.delete(context);
+  }
+  isAILoading = Array.from(aiRequestsInProgress.values()).some(v => v > 0);
+  updateOperationUI();
+  console.log(`[PARALLEL] Fin ${context} (restantes: ${current - 1})`);
+}
+
+/**
+ * Mettre à jour l'UI pour les opérations en cours
+ */
+function updateOperationUI() {
+  const hasChat = isOperationInProgress('chat');
+  const hasSaisie = saisieEditInProgress;
+  const statusBar = document.getElementById('operationStatusBar');
+  
+  if (statusBar) {
+    if (hasChat || hasSaisie) {
+      statusBar.style.display = 'flex';
+      let msg = [];
+      if (hasChat) msg.push('⏳ L\'IA réfléchit…');
+      if (hasSaisie) msg.push('✏️ Édition en cours…');
+      statusBar.innerHTML = '<div style="padding:8px 12px;font-size:12px">' + msg.join(' · ') + '</div>';
+    } else {
+      statusBar.style.display = 'none';
+    }
+  }
+}
+
 let exportFormat = 'pdf';
 let ecrQueue = [],
   ecrQueueIdx = 0;
@@ -4507,7 +4569,11 @@ function buildAIContext() {
 
 // Déclaration protégée pour éviter la duplication
 const sendToAI = async function(context) {
-  if (isAILoading) return;
+  // Nouveau système : permettre les opérations parallèles par contexte
+  if (isOperationInProgress(context)) {
+    console.log(`[PARALLEL] ${context} en cours, nouvelle requête ignorée`);
+    return;
+  }
   if (!requireSubscriptionAccess()) return;
 
   if (!isAiServiceReady()) {
@@ -4519,7 +4585,7 @@ const sendToAI = async function(context) {
   const input = document.getElementById(inputId);
   const msg = input?.value?.trim();
   if (!msg) return;
-  isAILoading = true;
+  startAIOperation(context);
   input.value = '';
   const sendBtnId = context === 'dashboard' ? 'aiSendBtn' : null;
   if (sendBtnId) {
@@ -4553,7 +4619,7 @@ const sendToAI = async function(context) {
         fullText = cached;
         // Sauter directement au traitement de la réponse
         appendMsg(context, 'ai', fullText);
-        isAILoading = false;
+        endAIOperation(context);
         if (sendBtnId) {
           const btn = document.getElementById(sendBtnId);
           if (btn) btn.disabled = false;
@@ -4584,7 +4650,7 @@ const sendToAI = async function(context) {
         removeTyping(context, tid);
         conversationHistory.pop();
         appendMsg(context, 'ai', result.msg);
-        isAILoading = false;
+        endAIOperation(context);
         if (sendBtnId) { const btn = document.getElementById(sendBtnId); if (btn) btn.disabled = false; }
         return;
       }
@@ -4598,14 +4664,14 @@ const sendToAI = async function(context) {
       removeTyping(context, tid);
       conversationHistory.pop();
       appendMsg(context, 'ai', noKeyMsg);
-      isAILoading = false;
+      endAIOperation(context);
       if (sendBtnId) { const btn = document.getElementById(sendBtnId); if (btn) btn.disabled = false; }
       return;
     }
 
     // ══ TRAITEMENT DE LA RÉPONSE ══
     removeTyping(context, tid);
-    fullText = data.choices?.[0]?.message?.content || 'Pas de réponse. Demandez moi pourquoi je ne répond pas ';
+    fullText = data.choices?.[0]?.message?.content || 'Pas de réponse.';
     conversationHistory.push({ role: 'assistant', content: fullText });
 
     // ── Sauvegarder dans le cache si ce n'est pas une action ──
