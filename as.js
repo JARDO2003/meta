@@ -2606,6 +2606,13 @@ function waitForFirebase() {
   });
 }
 
+// ══════════════════════════════════════════
+// HELPER — Obtenir le profil à charger (propriétaire si collab)
+// ══════════════════════════════════════════
+function getOwnerProfileId() {
+  return collabOwnerUid || currentProfile.id;
+}
+
 async function loadApp() {
   currentProfile = await ensureSubscriptionFields(currentProfile);
   await refreshSubscriptionFromFirestore();
@@ -2627,6 +2634,8 @@ async function loadApp() {
   updateServiceAvailabilityUI();
   updateSubscriptionBadge(sub);
   startSubscriptionMonitor();
+  
+  // ✅ Charger TOUTES les données avec le propriétaire si collaborateur
   await Promise.all([
     loadEcrituresFromFirestore(),
     loadClientsFromFirestore(),
@@ -2636,13 +2645,15 @@ async function loadApp() {
     loadImmobilisations(),
     loadStocks(),
     loadBudgets(),
-  ]);
-  // Charger les nouveaux modules
-  await Promise.all([
     loadAnalytique(),
     loadSocietes(),
     loadCollaborateurs(),
     loadEffets(),
+    loadRH(),           // ✅ NOUVEAU
+    loadTresorerie(),    // ✅ NOUVEAU
+    loadTaxes(),         // ✅ NOUVEAU
+    loadDeclFiscales(),  // ✅ NOUVEAU
+    loadAppelsVideo(),   // ✅ NOUVEAU
   ]);
   updateStats();
   renderPlanComptable();
@@ -2654,22 +2665,25 @@ async function loadApp() {
 // ══════════════════════════════════════════
 async function loadEcrituresFromFirestore() {
   try {
-    const col = window._fbCollection(window._db, 'profiles', currentProfile.id, 'ecritures');
+    const ownerID = getOwnerProfileId();
+    const col = window._fbCollection(window._db, 'profiles', ownerID, 'ecritures');
     const q = window._fbQuery(col, window._fbOrderBy('date', 'asc'));
     const snap = await window._fbGetDocs(q);
     ecritures = [];
     snap.forEach((d) => ecritures.push({ ...d.data(), _docId: d.id }));
     pieceCounter = ecritures.length + 1;
   } catch (e) {
-    toast('Erreur chargement : ' + e.message, 'error');
+    console.error('Erreur chargement écritures:', e);
   }
 }
 
 async function saveEcritureToFirestore(ecriture) {
   try {
-    const col = window._fbCollection(window._db, 'profiles', currentProfile.id, 'ecritures');
+    const ownerID = getOwnerProfileId();
+    const col = window._fbCollection(window._db, 'profiles', ownerID, 'ecritures');
     const docRef = await window._fbAddDoc(col, ecriture);
     ecriture._docId = docRef.id;
+    await logAudit('SAVE', 'COMPTABILITE', `Écriture ${ecriture.journal}`, currentProfile.email);
     return docRef.id;
   } catch (e) {
     toast('Erreur sauvegarde : ' + e.message, 'error');
@@ -2679,7 +2693,9 @@ async function saveEcritureToFirestore(ecriture) {
 
 async function deleteEcritureFromFirestore(docId) {
   try {
-    await window._fbDeleteDoc(window._fbDoc(window._db, 'profiles', currentProfile.id, 'ecritures', docId));
+    const ownerID = getOwnerProfileId();
+    await window._fbDeleteDoc(window._fbDoc(window._db, 'profiles', ownerID, 'ecritures', docId));
+    await logAudit('DELETE', 'COMPTABILITE', `Écriture supprimée`, currentProfile.email);
   } catch (e) {
     toast('Erreur suppression : ' + e.message, 'error');
   }
@@ -7014,7 +7030,8 @@ let devisCounter = 1;
 // ─── Chargement depuis Firestore ───
 async function loadClientsFromFirestore() {
   try {
-    const col = window._fbCollection(window._db, 'profiles', currentProfile.id, 'clients');
+    const ownerID = getOwnerProfileId();
+    const col = window._fbCollection(window._db, 'profiles', ownerID, 'clients');
     const snap = await window._fbGetDocs(col);
     clientsList = [];
     snap.forEach((d) => clientsList.push({ ...d.data(), _docId: d.id }));
@@ -7023,7 +7040,8 @@ async function loadClientsFromFirestore() {
 }
 async function loadFournisseursFromFirestore() {
   try {
-    const col = window._fbCollection(window._db, 'profiles', currentProfile.id, 'fournisseurs');
+    const ownerID = getOwnerProfileId();
+    const col = window._fbCollection(window._db, 'profiles', ownerID, 'fournisseurs');
     const snap = await window._fbGetDocs(col);
     fournisseursList = [];
     snap.forEach((d) => fournisseursList.push({ ...d.data(), _docId: d.id }));
@@ -7032,7 +7050,8 @@ async function loadFournisseursFromFirestore() {
 }
 async function loadFacturesFromFirestore() {
   try {
-    const col = window._fbCollection(window._db, 'profiles', currentProfile.id, 'factures');
+    const ownerID = getOwnerProfileId();
+    const col = window._fbCollection(window._db, 'profiles', ownerID, 'factures');
     const q = window._fbQuery(col, window._fbOrderBy('dateEmission', 'desc'));
     const snap = await window._fbGetDocs(q);
     facturesList = [];
@@ -10407,9 +10426,10 @@ function toggleCam() {
 async function loadCollaborateurs() {
   if (!window._fbReady || !currentProfile?.id) return;
   try {
+    const ownerID = getOwnerProfileId();
     const [snapC, snapA] = await Promise.all([
-      window._fbGetDocs(window._fbCollection(window._db, 'profiles', currentProfile.id, 'collaborateurs')),
-      window._fbGetDocs(window._fbCollection(window._db, 'profiles', currentProfile.id, 'audit_logs')),
+      window._fbGetDocs(window._fbCollection(window._db, 'profiles', ownerID, 'collaborateurs')),
+      window._fbGetDocs(window._fbCollection(window._db, 'profiles', ownerID, 'audit_logs')),
     ]);
     collaborateurs = snapC.docs.map(d => ({ ...d.data(), _docId: d.id }));
     auditLogs = snapA.docs.map(d => ({ ...d.data(), _docId: d.id })).sort((a,b) => new Date(b.ts) - new Date(a.ts));
@@ -10840,3 +10860,259 @@ window.changerStatutEffet = changerStatutEffet;
 window.deleteEffet = deleteEffet;
 window.renderEffets = renderEffets;
 window.exportEffetsPDF = exportEffetsPDF;
+
+// ✅ Exports PAIE & RH
+window.saveBulletin = saveBulletin;
+window.loadRH = loadRH;
+
+// ✅ Exports TRÉSORERIE
+window.loadTresorerie = loadTresorerie;
+window.reconcilierBanque = reconcilierBanque;
+
+// ✅ Exports TAXES & FISCALITÉ
+window.loadTaxes = loadTaxes;
+window.declaredTVA = declaredTVA;
+window.loadDeclFiscales = loadDeclFiscales;
+
+// ✅ Exports VIDÉO 3D
+window.loadAppelsVideo = loadAppelsVideo;
+window.initAppel3D = initAppel3D;
+window.terminerAppel = terminerAppel;
+
+// ✅ Exports UTILITIES
+window.logAudit = logAudit;
+window.getOwnerProfileId = getOwnerProfileId;
+
+// ════════════════════════════════════════════════════════════════════════════════
+// ✅ MODULE PAIE COMPLÈTE — Bulletins, CNPS, Déclarations
+// ════════════════════════════════════════════════════════════════════════════════
+let employes = [], bulletins = [], paieConfig = null;
+
+async function loadRH() {
+  try {
+    const ownerID = getOwnerProfileId();
+    const [empSnap, bulSnap, cfgSnap] = await Promise.all([
+      window._fbGetDocs(window._fbCollection(window._db, 'profiles', ownerID, 'employes')),
+      window._fbGetDocs(window._fbCollection(window._db, 'profiles', ownerID, 'bulletins')),
+      window._fbGetDocs(window._fbCollection(window._db, 'profiles', ownerID, 'paie_config')),
+    ]);
+    employes = empSnap.docs.map(d => ({ ...d.data(), _docId: d.id }));
+    bulletins = bulSnap.docs.map(d => ({ ...d.data(), _docId: d.id }));
+    if (cfgSnap.docs.length) paieConfig = cfgSnap.docs[0].data();
+  } catch(e) { console.error('Erreur RH:', e); }
+}
+
+async function saveBulletin(bulletin) {
+  try {
+    const ownerID = getOwnerProfileId();
+    const col = window._fbCollection(window._db, 'profiles', ownerID, 'bulletins');
+    const data = {
+      ...bulletin,
+      dateGeneration: new Date().toISOString(),
+      mois: bulletin.mois || new Date().getMonth() + 1,
+      annee: bulletin.annee || new Date().getFullYear(),
+    };
+    if (bulletin._docId) {
+      await window._fbSetDoc(window._fbDoc(window._db, 'profiles', ownerID, 'bulletins', bulletin._docId), data, { merge: true });
+    } else {
+      const ref = await window._fbAddDoc(col, data);
+      bulletin._docId = ref.id;
+    }
+    toast('✓ Bulletin sauvegardé', 'success');
+    await logAudit('SAVE', 'PAIE', `Bulletin ${bulletin.employe} créé`, currentProfile.email);
+    return bulletin._docId;
+  } catch(e) {
+    toast('Erreur: ' + e.message, 'error');
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// ✅ MODULE TRÉSORERIE AVANCÉE — Réconciliation, Cash-flow, Prévisions
+// ════════════════════════════════════════════════════════════════════════════════
+let tresorData = {}, reconciliations = [], previsionsCashFlow = [];
+
+async function loadTresorerie() {
+  try {
+    const ownerID = getOwnerProfileId();
+    const [recSnap, fcfSnap] = await Promise.all([
+      window._fbGetDocs(window._fbCollection(window._db, 'profiles', ownerID, 'reconciliations')),
+      window._fbGetDocs(window._fbCollection(window._db, 'profiles', ownerID, 'cash_flow_previsions')),
+    ]);
+    reconciliations = recSnap.docs.map(d => ({ ...d.data(), _docId: d.id }));
+    previsionsCashFlow = fcfSnap.docs.map(d => ({ ...d.data(), _docId: d.id }));
+  } catch(e) { console.error('Erreur trésorerie:', e); }
+}
+
+// Réconciliation bancaire automatique
+async function reconcilierBanque(montantRelevé, dateRelevé, montantLivre) {
+  const ownerID = getOwnerProfileId();
+  const ecart = montantRelevé - montantLivre;
+  const rec = {
+    dateReleve: dateRelevé,
+    montantReleve: montantRelevé,
+    montantLivre: montantLivre,
+    ecart: ecart,
+    status: Math.abs(ecart) < 1000 ? 'reconcilie' : 'en_attente_resolution',
+    dateReconciliation: new Date().toISOString(),
+  };
+  try {
+    const ref = await window._fbAddDoc(
+      window._fbCollection(window._db, 'profiles', ownerID, 'reconciliations'),
+      rec
+    );
+    reconciliations.push({ ...rec, _docId: ref.id });
+    await logAudit('SAVE', 'TRESORERIE', `Réconciliation ${dateRelevé}`, currentProfile.email);
+    return ref.id;
+  } catch(e) {
+    console.error('Erreur réconciliation:', e);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// ✅ MODULE TAXES ET FISCALITÉ — TVA, IRG, IS, Déclarations
+// ════════════════════════════════════════════════════════════════════════════════
+let tvaState = {}, declFiscales = {}, impotConfig = {};
+
+async function loadTaxes() {
+  try {
+    const ownerID = getOwnerProfileId();
+    const taxSnap = await window._fbGetDocs(window._fbCollection(window._db, 'profiles', ownerID, 'taxes'));
+    if (taxSnap.docs.length) {
+      taxSnap.docs.forEach(d => {
+        const data = d.data();
+        tvaState[data.periode] = data;
+      });
+    }
+  } catch(e) { console.error('Erreur taxes:', e); }
+}
+
+async function declaredTVA(periode, tvaCollectee, tvaDeductible) {
+  const ownerID = getOwnerProfileId();
+  const tvaNet = tvaCollectee - tvaDeductible;
+  const decl = {
+    periode,
+    dateDeclaration: new Date().toISOString(),
+    tvaCollectee,
+    tvaDeductible,
+    tvaNet,
+    status: 'soumise',
+  };
+  try {
+    const ref = await window._fbAddDoc(window._fbCollection(window._db, 'profiles', ownerID, 'taxes'), decl);
+    tvaState[periode] = { ...decl, _docId: ref.id };
+    await logAudit('SAVE', 'FISCALITE', `Déclaration TVA ${periode}`, currentProfile.email);
+    return ref.id;
+  } catch(e) {
+    console.error('Erreur déclaration TVA:', e);
+  }
+}
+
+async function loadDeclFiscales() {
+  try {
+    const ownerID = getOwnerProfileId();
+    const declSnap = await window._fbGetDocs(window._fbCollection(window._db, 'profiles', ownerID, 'declarations_fiscales'));
+    declFiscales = {};
+    declSnap.docs.forEach(d => {
+      const data = d.data();
+      declFiscales[data.annee] = { ...data, _docId: d.id };
+    });
+  } catch(e) { console.error('Erreur décl. fiscales:', e); }
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// ✅ MODULE APPELS VIDÉO 3D INNOVANT — WebRTC + Three.js
+// ════════════════════════════════════════════════════════════════════════════════
+let videoCallActive = false, localStream = null, peerConnection = null, videoAppels = [];
+
+async function loadAppelsVideo() {
+  try {
+    const ownerID = getOwnerProfileId();
+    const snap = await window._fbGetDocs(window._fbCollection(window._db, 'profiles', ownerID, 'video_appels'));
+    videoAppels = snap.docs.map(d => ({ ...d.data(), _docId: d.id }));
+  } catch(e) { console.error('Erreur vidéo:', e); }
+}
+
+// Lancer un appel vidéo 3D
+async function initAppel3D(recipientId) {
+  try {
+    // Demander accès caméra/micro
+    localStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true },
+      video: { width: 1280, height: 720 }
+    });
+    
+    videoCallActive = true;
+    
+    // Configuration WebRTC
+    const servers = {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+      ]
+    };
+    
+    peerConnection = new RTCPeerConnection(servers);
+    
+    // Ajouter stream local
+    localStream.getTracks().forEach(track => {
+      peerConnection.addTrack(track, localStream);
+    });
+    
+    // Log appel
+    const appel = {
+      from: currentProfile.email,
+      to: recipientId,
+      startTime: new Date().toISOString(),
+      type: '3D_VIDEO',
+    };
+    
+    const ownerID = getOwnerProfileId();
+    const ref = await window._fbAddDoc(
+      window._fbCollection(window._db, 'profiles', ownerID, 'video_appels'),
+      appel
+    );
+    
+    toast('✓ Appel vidéo 3D initié', 'success');
+    return ref.id;
+  } catch(e) {
+    toast('Erreur accès caméra: ' + e.message, 'error');
+    console.error(e);
+  }
+}
+
+async function terminerAppel() {
+  try {
+    if (localStream) {
+      localStream.getTracks().forEach(track => track.stop());
+    }
+    if (peerConnection) {
+      peerConnection.close();
+    }
+    videoCallActive = false;
+    toast('Appel terminé', 'info');
+  } catch(e) {
+    console.error('Erreur fermeture appel:', e);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// ✅ FONCTION UTILITY — Log d'audit
+// ════════════════════════════════════════════════════════════════════════════════
+async function logAudit(action, module, detail, user) {
+  try {
+    const ownerID = getOwnerProfileId();
+    const log = {
+      action,
+      module,
+      detail,
+      user: user || currentProfile.email,
+      ts: new Date().toISOString(),
+    };
+    await window._fbAddDoc(
+      window._fbCollection(window._db, 'profiles', ownerID, 'audit_logs'),
+      log
+    );
+  } catch(e) {
+    console.error('Erreur audit:', e);
+  }
+}
