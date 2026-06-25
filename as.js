@@ -97,7 +97,7 @@ document.dispatchEvent(new Event('firebase-ready'));
 // Les clés API Gemini, Mistral et l'ordre des modèles sont gérés via server.html
 // JAMAIS de clé API en dur dans ce fichier
 // ══════════════════════════════════════════
-let GROQ_API_KEYS = ['AQ.Ab8RN6L5MrI8fgrzk7lhfKjXmEmmcG1FXhldUNpsE2xCsgnK1g'];    // Clé API Gemini directe
+let GROQ_API_KEYS = ['AQ.Ab8RN6LRPDzoKC3Y9_iM5VM1uuFTHdya_sS3k699IrMu2BeFHg'];    // Clé API Gemini directe
 let GROQ_MODELS = [];      // Chargées depuis server_config/models
 let groqKeyIdx = 0;        // Index rotation clés Gemini
 let groqModelIdx = 0;      // Index rotation modèles Groq
@@ -387,7 +387,7 @@ async function callGroqQueued(messages, systemPrompt, maxTokens = 6000, temperat
           parts: [{ text: msg.content }]
         }));
 
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GROQ_API_KEYS[keyIdx]}`, {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${GROQ_API_KEYS[keyIdx]}`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
