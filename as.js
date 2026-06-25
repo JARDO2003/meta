@@ -9448,7 +9448,7 @@ function exportDeclarationPDF() {
       ['TVA déductible (445x)', fnPDF(tvaDeductible) + ' FCFA'],
       ['TVA NETTE À PAYER (444)', fnPDF(Math.max(0,tvaNette)) + ' FCFA'],
       ['',''],
-      ['Chiffre d'affaires HT (70x)', fnPDF(ca) + ' FCFA'],
+      ['Chiffre d\'affaires HT (70x)', fnPDF(ca) + ' FCFA'],
       ['Charges totales (6x)', fnPDF(charges) + ' FCFA'],
       ['Bénéfice imposable', fnPDF(benefice) + ' FCFA'],
       ['IS 25%', fnPDF(is) + ' FCFA'],
