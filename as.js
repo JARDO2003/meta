@@ -3113,7 +3113,7 @@ function renderMultiEcrEditor() {
           <td><div class="asw">
             <input type="text" value="${String(l.compte || '').replace(/"/g, '&quot;')}" placeholder="Compte…" style="width:100%;font-family:var(--font-mono)"
               oninput="ecrQueue[${qi}].lignes[${li}].compte=this.value;updateAccountSuggestMulti(${qi},${li},this)"
-              onfocus="updateAccountSuggestMulti(${qi},${li},this)"
+              onfocus="openPcModal((code,lib)=>{selectAccountMulti(${qi},${li},code,lib);})"
               onblur="hideDropdown('m-${qi}-${li}')">
             <div class="adrop" id="drop-m-${qi}-${li}"></div>
           </div></td>
@@ -3297,7 +3297,7 @@ function ligneRowHTML(i, l) {
       <td><div class="asw">
         <input type="text" id="cpt-t-${i}" value="${l.compte}" placeholder="Compte…" style="width:100%;font-family:var(--font-mono)"
           oninput="lignes[${i}].compte=this.value;updateAccountSuggest(${i},this,'table')"
-          onfocus="updateAccountSuggest(${i},this,'table')"
+          onfocus="openPcModal((code,lib)=>{selectAccount(${i},code,lib);})"
           onblur="hideDropdown('t-${i}')">
         <div class="adrop" id="drop-t-${i}"></div>
       </div></td>
@@ -3317,7 +3317,7 @@ function ligneCardHTML(i, l) {
             <div style="position:relative">
               <input class="ligne-card-input" type="text" id="cpt-c-${i}" value="${l.compte}" placeholder="Compte…" style="font-family:var(--font-mono)"
                 oninput="lignes[${i}].compte=this.value;updateAccountSuggest(${i},this,'card')"
-                onfocus="updateAccountSuggest(${i},this,'card')"
+                onfocus="openPcModal((code,lib)=>{selectAccount(${i},code,lib);})"
                 onblur="hideDropdown('c-${i}')">
               <div class="adrop" id="drop-c-${i}"></div>
             </div>
@@ -9752,8 +9752,197 @@ async function importPlanComptableRows(rows) {
 window.openImportModal = openImportModal;
 
 // ══════════════════════════════════════════
-// INIT SESSION
+// MODAL PLAN COMPTABLE 3D — Sélection de compte
 // ══════════════════════════════════════════
+let _pcModalCallback = null;   // fonction appelée avec (code, lib) au choix
+let _pcModalClass = 'all';     // filtre classe actif
+let _pcModalHighlight = 0;     // index résultat sélectionné au clavier
+
+const CLASS_NATURE = { 1:'Passif', 2:'Actif', 3:'Actif', 4:'Mixte', 5:'Trésorerie', 6:'Charge', 7:'Produit', 8:'Spécial' };
+const CLASS_ICONS  = { 1:'🏛️', 2:'🏗️', 3:'📦', 4:'👥', 5:'💳', 6:'📤', 7:'📥', 8:'⚙️' };
+
+function openPcModal(callback) {
+  _pcModalCallback = callback;
+  _pcModalClass = 'all';
+  _pcModalHighlight = 0;
+  const overlay = document.getElementById('pcModalOverlay');
+  if (!overlay) return;
+  overlay.classList.add('open');
+  // Construire la navigation par classe si vide
+  _buildPcClassNav();
+  renderPcModal();
+  setTimeout(() => {
+    const s = document.getElementById('pcModalSearch');
+    if (s) { s.value = ''; s.focus(); }
+  }, 80);
+  // Fermer avec Échap
+  overlay._kbHandler = (e) => {
+    if (e.key === 'Escape') { closePcModal(); }
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { _pcModalMoveSel(e.key === 'ArrowDown' ? 1 : -1); e.preventDefault(); }
+    else if (e.key === 'Enter') { _pcModalPickHighlighted(); e.preventDefault(); }
+  };
+  document.addEventListener('keydown', overlay._kbHandler);
+}
+
+function closePcModal() {
+  const overlay = document.getElementById('pcModalOverlay');
+  if (!overlay) return;
+  overlay.classList.remove('open');
+  if (overlay._kbHandler) document.removeEventListener('keydown', overlay._kbHandler);
+  _pcModalCallback = null;
+}
+
+function _buildPcClassNav() {
+  const nav = document.getElementById('pcModalClassNav');
+  if (!nav || nav.dataset.built) return;
+  nav.dataset.built = '1';
+  const classCounts = {};
+  Object.keys(PC).forEach(c => { const cl = c[0]; classCounts[cl] = (classCounts[cl]||0)+1; });
+  Object.keys(CLASS_NAMES).sort().forEach(cl => {
+    const btn = document.createElement('button');
+    btn.className = 'pcm-cls-btn';
+    btn.dataset.cls = cl;
+    btn.innerHTML = `<span class="pcm-cls-num">${CLASS_ICONS[cl]||cl}</span><span class="pcm-cls-label">${CLASS_NAMES[cl]}</span><span class="pcm-count-badge">${classCounts[cl]||0}</span>`;
+    btn.onclick = function() { filterPcClass(cl, btn); };
+    nav.appendChild(btn);
+  });
+}
+
+function filterPcClass(cls, btn) {
+  _pcModalClass = cls;
+  _pcModalHighlight = 0;
+  document.querySelectorAll('.pcm-cls-btn').forEach(b => b.classList.toggle('active', b === btn || (cls==='all' && b.dataset.cls === undefined)));
+  // Gérer le bouton "Toutes"
+  if (cls === 'all') {
+    document.querySelectorAll('.pcm-cls-btn[data-cls]').forEach(b => b.classList.remove('active'));
+    document.querySelector('.pcm-cls-btn:not([data-cls])')?.classList.add('active');
+  }
+  renderPcModal();
+  // Scroll vers le début
+  const body = document.getElementById('pcModalBody');
+  if (body) body.scrollTop = 0;
+}
+
+function renderPcModal() {
+  const body = document.getElementById('pcModalBody');
+  const countEl = document.getElementById('pcModalCount');
+  const search = (document.getElementById('pcModalSearch')?.value || '').trim().toLowerCase();
+  if (!body) return;
+
+  // MODE RECHERCHE — liste plate
+  if (search.length >= 1) {
+    body.classList.add('list-mode');
+    const q = search.replace(/[^a-z0-9àâéèêîïôùûç\s]/g, '');
+    const results = Object.entries(PC).filter(([code, lib]) =>
+      code.startsWith(search) || lib.toLowerCase().includes(q) ||
+      code.toLowerCase().includes(q)
+    ).slice(0, 120);
+    if (countEl) countEl.textContent = `${results.length} compte(s) trouvé(s)`;
+    if (!results.length) {
+      body.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted);font-size:13px">Aucun compte trouvé pour "<strong>${search}</strong>"</div>`;
+      return;
+    }
+    body.innerHTML = results.map(([code, lib], i) => {
+      const hlCode = code.replace(new RegExp(`(${escRe(search)})`, 'gi'), '<mark class="hl">$1</mark>');
+      const hlLib  = lib.replace(new RegExp(`(${escRe(q)})`, 'gi'), '<mark class="hl">$1</mark>');
+      const clNum = code[0];
+      return `<div class="pcm-search-result${i===_pcModalHighlight?' pcm-hl':''}" data-pi="${i}" onclick="pickPcAccount('${code}','${lib.replace(/'/g,"\\'")}')">
+        <span class="pcm-sr-code">${hlCode}</span>
+        <span class="pcm-sr-lib">${hlLib}</span>
+        <span class="pcm-sr-class">${CLASS_ICONS[clNum]||clNum} ${CLASS_NAMES[clNum]||'Cl.'+clNum}</span>
+        <span style="color:var(--warm);font-size:10px;font-family:var(--font-mono);opacity:${i===_pcModalHighlight?1:0}">→ Choisir</span>
+      </div>`;
+    }).join('');
+    return;
+  }
+
+  // MODE GRILLE — cartes 3D par classe
+  body.classList.remove('list-mode');
+  const classes = _pcModalClass === 'all' ? Object.keys(CLASS_NAMES).sort() : [String(_pcModalClass)];
+  const cards = classes.map(cl => {
+    const entries = Object.entries(PC).filter(([c]) => c[0] === cl).sort(([a],[b]) => a.localeCompare(b));
+    if (!entries.length) return '';
+    const rows = entries.map(([code, lib]) => {
+      const depth = code.length <= 3 ? '' : code.length === 4 ? 'pcm-row-depth-2' : code.length === 5 ? 'pcm-row-depth-3' : 'pcm-row-depth-4plus';
+      return `<div class="pcm-row ${depth}" onclick="pickPcAccount('${code}','${lib.replace(/'/g,"\\'")}')">
+        <span class="pcm-row-code">${code}</span>
+        <span class="pcm-row-lib">${lib}</span>
+        <span class="pcm-row-pick">→ Choisir</span>
+      </div>`;
+    }).join('');
+    if (countEl) countEl.textContent = `${Object.keys(PC).length} comptes · SYSCOHADA`;
+    return `<div class="pcm-card">
+      <div class="pcm-card-head">
+        <div class="pcm-card-big-num">${cl}</div>
+        <div class="pcm-card-info">
+          <div class="pcm-card-name">${CLASS_NAMES[cl] || 'Classe '+cl}</div>
+          <span class="pcm-card-nature">${CLASS_NATURE[cl]||'Compte'}</span>
+          <div class="pcm-card-nb">${entries.length} compte(s)</div>
+        </div>
+      </div>
+      <div class="pcm-card-rows">${rows}</div>
+    </div>`;
+  }).join('');
+  body.innerHTML = cards || `<div style="color:var(--muted);padding:40px;text-align:center">Aucun compte dans cette classe</div>`;
+}
+
+function pickPcAccount(code, lib) {
+  if (_pcModalCallback) _pcModalCallback(code, lib);
+  closePcModal();
+}
+
+function _pcModalMoveSel(dir) {
+  const items = document.querySelectorAll('#pcModalBody .pcm-search-result');
+  if (!items.length) return;
+  items[_pcModalHighlight]?.classList.remove('pcm-hl');
+  items[_pcModalHighlight]?.querySelector('span:last-child') && (items[_pcModalHighlight].querySelector('span:last-child').style.opacity = '0');
+  _pcModalHighlight = Math.max(0, Math.min(items.length-1, _pcModalHighlight + dir));
+  const el = items[_pcModalHighlight];
+  if (el) {
+    el.classList.add('pcm-hl');
+    const arrow = el.querySelector('span:last-child');
+    if (arrow) arrow.style.opacity = '1';
+    el.scrollIntoView({ block:'nearest' });
+  }
+}
+
+function _pcModalPickHighlighted() {
+  const el = document.querySelector('#pcModalBody .pcm-search-result.pcm-hl');
+  if (el) el.click();
+}
+
+function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+// Patch des fonctions de mise à jour : on ajoute un bouton 📋 à côté de chaque input compte
+// pour ouvrir le modal. On surcharge updateAccountSuggest et updateAccountSuggestMulti
+// pour injecter le bouton la première fois.
+function _injectPcBtnNear(input, cb) {
+  if (!input) return;
+  if (input._pcBtn) return; // déjà injecté
+  input._pcBtn = true;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.title = 'Ouvrir le plan comptable';
+  btn.className = 'pc-open-btn';
+  btn.innerHTML = '📋';
+  btn.style.cssText = 'position:absolute;right:36px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:14px;z-index:5;opacity:.55;transition:opacity .15s;line-height:1;padding:2px 4px;';
+  btn.onmouseenter = () => btn.style.opacity = '1';
+  btn.onmouseleave = () => btn.style.opacity = '.55';
+  btn.onmousedown = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    openPcModal(cb);
+  };
+  const wrap = input.parentElement;
+  if (wrap && getComputedStyle(wrap).position === 'static') wrap.style.position = 'relative';
+  wrap?.appendChild(btn);
+}
+
+window.openPcModal = openPcModal;
+window.closePcModal = closePcModal;
+window.renderPcModal = renderPcModal;
+window.filterPcClass = filterPcClass;
+window.pickPcAccount = pickPcAccount;
 document.addEventListener('firebase-ready', async () => {
   await loadServerConfig();
   onAuthStateChanged(auth, async (user) => {
