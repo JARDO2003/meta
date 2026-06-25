@@ -2660,6 +2660,7 @@ async function loadApp() {
     loadTaxes(),         // ✅ NOUVEAU
     loadDeclFiscales(),  // ✅ NOUVEAU
     loadAppelsVideo(),   // ✅ NOUVEAU
+    loadLockedPeriods(), // 🔒 Périodes verrouillées
   ]);
   updateStats();
   renderPlanComptable();
@@ -2681,6 +2682,40 @@ async function loadEcrituresFromFirestore() {
   } catch (e) {
     console.error('Erreur chargement écritures:', e);
   }
+}
+
+// ══════════════════════════════════════════
+// PISTE D'AUDIT — Périodes verrouillées après clôture
+// ══════════════════════════════════════════
+let lockedPeriods = new Set(); // ex: Set(['2023','2022'])
+
+async function loadLockedPeriods() {
+  try {
+    const ownerID = getOwnerProfileId();
+    const snap = await window._fbGetDoc(window._fbDoc(window._db, 'profiles', ownerID, 'config', 'locked_periods'));
+    if (snap.exists()) {
+      const years = snap.data().years || [];
+      lockedPeriods = new Set(years.map(String));
+    }
+  } catch (e) {}
+}
+
+async function lockPeriod(yr) {
+  try {
+    const ownerID = getOwnerProfileId();
+    lockedPeriods.add(String(yr));
+    await window._fbSetDoc(
+      window._fbDoc(window._db, 'profiles', ownerID, 'config', 'locked_periods'),
+      { years: [...lockedPeriods], lockedAt: new Date().toISOString() },
+      { merge: true }
+    );
+  } catch (e) { console.warn('[COMEO] Erreur verrouillage période:', e.message); }
+}
+
+function isPeriodeLocked(dateStr) {
+  if (!dateStr) return false;
+  const yr = String(dateStr).substring(0, 4);
+  return lockedPeriods.has(yr);
 }
 
 async function saveEcritureToFirestore(ecriture) {
@@ -3840,6 +3875,14 @@ function renderEcritureInGroupe(e, eIdx, totalInGroupe) {
 }
 
 async function deleteGroupe(docIds, ids) {
+  const locked = ids.some(id => {
+    const ecr = ecritures.find(e => e.id === id);
+    return ecr && isPeriodeLocked(ecr.date);
+  });
+  if (locked) {
+    toast('🔒 Ce groupe contient des écritures d\'une période clôturée — suppression impossible.', 'error');
+    return;
+  }
   if (!confirm(`Supprimer ce groupe de ${docIds.length} écriture${docIds.length > 1 ? 's' : ''} ?`)) return;
   for (const docId of docIds) await deleteEcritureFromFirestore(docId);
   ids.forEach((id) => {
@@ -3851,6 +3894,11 @@ async function deleteGroupe(docIds, ids) {
 }
 
 async function deleteEcriture(docId, id) {
+  const ecr = ecritures.find(e => e.id === id || e._docId === docId);
+  if (ecr && isPeriodeLocked(ecr.date)) {
+    toast(`🔒 Période ${String(ecr.date).substring(0,4)} verrouillée — suppression impossible. Exercice clôturé.`, 'error');
+    return;
+  }
   if (!confirm('Supprimer cette écriture ?')) return;
   await deleteEcritureFromFirestore(docId);
   ecritures = ecritures.filter((e) => e.id !== id);
@@ -5435,6 +5483,16 @@ function submitRobotQuery(query) {
   handleRobotQuery(q).finally(() => {
     robotQueryPending = false;
   });
+}
+
+// ── Saisie texte — alternative au micro dans open-space ──
+function sendRobotText() {
+  const input = document.getElementById('robotTextInput');
+  if (!input) return;
+  const q = input.value.trim();
+  if (!q) return;
+  input.value = '';
+  submitRobotQuery(q);
 }
 
 function normalizeForEchoCompare(s) {
@@ -9497,6 +9555,8 @@ async function genererEcrituresCloture() {
   await saveEcritureToFirestore(ecr);
   ecritures.push(ecr);
   updateStats();
+  // 🔒 Verrouillage automatique de l'exercice clôturé
+  await lockPeriod(yr);
   const el = document.getElementById('clotureStatus');
   el.innerHTML = `<div style="padding:12px;color:var(--green)"><strong>✓ Écritures de clôture générées</strong><br>Résultat ${yr} : ${fn(Math.abs(res))} FCFA ${res > 0 ? '(bénéfice)' : '(perte)'}<br>Compte ${res > 0 ? '131' : '139'} mouvementé.</div>`;
   toast(`✓ Clôture ${yr} générée — Résultat : ${fn(Math.abs(res))} FCFA`, 'success');
@@ -9533,6 +9593,163 @@ async function ouvrirNouvelExercice() {
 window.verifierCloture = verifierCloture;
 window.genererEcrituresCloture = genererEcrituresCloture;
 window.ouvrirNouvelExercice = ouvrirNouvelExercice;
+
+// ══════════════════════════════════════════
+// IMPORT CSV SAARI / SAGE — Journal, Plan comptable, Clients, Fournisseurs
+// Format journal Saari : Date;Journal;Pièce;Compte;Libellé;Débit;Crédit
+// Format clients/fourn : Code;Nom;Adresse;Téléphone;Email;Compte
+// Format plan comptable : Compte;Libellé
+// ══════════════════════════════════════════
+function openImportModal(type) {
+  const labels = {
+    journal:       { titre: 'Importer Journal Saari/Sage', desc: 'Format CSV : Date;Journal;Pièce;Compte;Libellé;Débit;Crédit', accept: '.csv,.txt' },
+    clients:       { titre: 'Importer Clients',            desc: 'Format CSV : Code;Nom;Adresse;Téléphone;Email;Compte',          accept: '.csv,.txt' },
+    fournisseurs:  { titre: 'Importer Fournisseurs',       desc: 'Format CSV : Code;Nom;Adresse;Téléphone;Email;Compte',          accept: '.csv,.txt' },
+    plan_comptable:{ titre: 'Importer Plan Comptable',     desc: 'Format CSV : Compte;Libellé',                                   accept: '.csv,.txt' },
+  };
+  const cfg = labels[type];
+  if (!cfg) return;
+
+  // Créer un input file invisible et le déclencher immédiatement
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = cfg.accept;
+  inp.style.display = 'none';
+  document.body.appendChild(inp);
+  inp.addEventListener('change', () => {
+    const file = inp.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      try {
+        await parseAndImportCSV(ev.target.result, type);
+      } catch (e) {
+        toast('Erreur import : ' + e.message, 'error');
+      }
+    };
+    reader.readAsText(file, 'UTF-8');
+    document.body.removeChild(inp);
+  });
+  inp.click();
+}
+
+async function parseAndImportCSV(raw, type) {
+  // Normaliser séparateur : ; ou ,
+  const lines = raw.replace(/\r/g, '').split('\n').filter(l => l.trim());
+  if (lines.length < 2) { toast('Fichier vide ou non reconnu', 'error'); return; }
+
+  // Détecter séparateur dominant
+  const sep = (lines[0].split(';').length >= lines[0].split(',').length) ? ';' : ',';
+
+  const header = lines[0].split(sep).map(h => h.trim().toLowerCase().replace(/[^a-zàâéèêîïôùûç0-9]/g,''));
+  const rows = lines.slice(1).map(l => {
+    const cols = l.split(sep);
+    const obj = {};
+    header.forEach((h, i) => obj[h] = (cols[i] || '').trim().replace(/^"(.*)"$/, '$1'));
+    return obj;
+  });
+
+  if (type === 'journal') {
+    await importJournalRows(rows, header);
+  } else if (type === 'clients') {
+    await importTiersRows(rows, 'clients');
+  } else if (type === 'fournisseurs') {
+    await importTiersRows(rows, 'fournisseurs');
+  } else if (type === 'plan_comptable') {
+    await importPlanComptableRows(rows);
+  }
+}
+
+async function importJournalRows(rows, header) {
+  // Regrouper par pièce pour reconstituer les écritures multi-lignes
+  const byPiece = {};
+  for (const r of rows) {
+    // Essayer les noms de colonnes courants Saari/Sage
+    const date    = r['date'] || r['dat'] || '';
+    const journal = r['journal'] || r['jnl'] || r['journ'] || 'OD';
+    const piece   = r['pice'] || r['pièce'] || r['piece'] || r['numpiece'] || r['reference'] || String(Date.now());
+    const compte  = r['compte'] || r['numcompte'] || r['cpt'] || '';
+    const libelle = r['libell'] || r['libelle'] || r['designation'] || '';
+    const debit   = parseFloat((r['dbit'] || r['débit'] || r['debit'] || '0').replace(/\s/g,'').replace(',','.')) || 0;
+    const credit  = parseFloat((r['crdit'] || r['crédit'] || r['credit'] || '0').replace(/\s/g,'').replace(',','.')) || 0;
+
+    if (!date || !compte) continue;
+    const key = date + '|' + journal + '|' + piece;
+    if (!byPiece[key]) byPiece[key] = { date, journal, piece, libelle, lignes: [] };
+    byPiece[key].lignes.push({ compte: String(compte), libelle, debit: Math.round(debit), credit: Math.round(credit) });
+    if (libelle && !byPiece[key].libelle) byPiece[key].libelle = libelle;
+  }
+
+  const ownerID = getOwnerProfileId();
+  let imported = 0, skipped = 0;
+  for (const key of Object.keys(byPiece)) {
+    const ecr = byPiece[key];
+    // Vérifier équilibre (tolérance 1 FCFA)
+    const td = ecr.lignes.reduce((s,l) => s + l.debit, 0);
+    const tc = ecr.lignes.reduce((s,l) => s + l.credit, 0);
+    if (Math.abs(td - tc) > 1) { skipped++; continue; }
+    const newEcr = {
+      id: Date.now() + imported,
+      date: ecr.date,
+      journal: ecr.journal,
+      piece: ecr.piece,
+      libelle: ecr.libelle,
+      lignes: ecr.lignes,
+      createdAt: new Date().toISOString(),
+      source: 'import_saari',
+    };
+    const docRef = await window._fbAddDoc(
+      window._fbCollection(window._db, 'profiles', ownerID, 'ecritures'),
+      newEcr
+    );
+    newEcr._docId = docRef.id;
+    ecritures.push(newEcr);
+    imported++;
+  }
+  pieceCounter = ecritures.length + 1;
+  updateStats();
+  await logAudit('IMPORT', 'COMPTABILITE', `Import Saari : ${imported} écriture(s) importée(s), ${skipped} ignorée(s) (déséquilibrées)`, currentProfile.email);
+  toast(`✓ Import terminé — ${imported} écriture(s) importée(s)${skipped ? `, ${skipped} ignorée(s) (déséquilibre)` : ''}`, imported > 0 ? 'success' : 'error');
+  if (imported > 0) renderJournal();
+}
+
+async function importTiersRows(rows, collection) {
+  const ownerID = getOwnerProfileId();
+  let imported = 0;
+  for (const r of rows) {
+    const nom     = r['nom'] || r['raisonsociale'] || r['name'] || '';
+    const code    = r['code'] || r['ref'] || r['reference'] || '';
+    const adresse = r['adresse'] || r['address'] || '';
+    const tel     = r['tlphone'] || r['telephone'] || r['tel'] || r['phone'] || '';
+    const email   = r['email'] || r['mail'] || '';
+    const compte  = r['compte'] || r['numcompte'] || (collection === 'clients' ? '411' : '401');
+    if (!nom) continue;
+    const tiers = { nom, code, adresse, tel, email, compte, createdAt: new Date().toISOString(), source: 'import_saari' };
+    const docRef = await window._fbAddDoc(
+      window._fbCollection(window._db, 'profiles', ownerID, collection),
+      tiers
+    );
+    tiers._docId = docRef.id;
+    if (collection === 'clients') clientsList.push(tiers);
+    else fournisseursList.push(tiers);
+    imported++;
+  }
+  toast(`✓ ${imported} ${collection === 'clients' ? 'client(s)' : 'fournisseur(s)'} importé(s)`, imported > 0 ? 'success' : 'error');
+}
+
+async function importPlanComptableRows(rows) {
+  let imported = 0;
+  for (const r of rows) {
+    const code   = (r['compte'] || r['code'] || r['numcompte'] || '').replace(/\s/g,'');
+    const libelle = r['libell'] || r['libelle'] || r['designation'] || '';
+    if (!code || !libelle) continue;
+    if (!PC[code]) { PC[code] = libelle; imported++; }
+  }
+  renderPlanComptable();
+  toast(`✓ ${imported} compte(s) ajouté(s) au plan comptable`, imported > 0 ? 'success' : 'info');
+}
+
+window.openImportModal = openImportModal;
 
 // ══════════════════════════════════════════
 // INIT SESSION
@@ -11332,14 +11549,14 @@ const __globalExports = [
   'lancerLettrage','navigate','onClickTopValidate','openBudgetModal','openCentreModal',
   'openClientModal','openCollabModal','openDeclTaxeModal','openDevisModal',
   'openEffetModal','openExportModal','openFactureModal','openFournisseurModal',
-  'openImmobModal','openNouveau3DCall','openPaieModal','openRobot','openSocieteModal',
+  'openImmobModal','openImportModal','openNouveau3DCall','openPaieModal','openRobot','openSocieteModal',
   'openStockModal','openWavePayment','ouvrirAppelVideo','ouvrirNouvelExercice',
   'previewFacturePDF','rejoindreCollab','renderBalance','renderBilan','renderClients',
   'renderFactures','renderFournisseurs','renderGrandLivre','renderJournal',
   'renderPlanComptable','resetBalanceFiltre','resetFactureFiltre','resetGLFiltre',
   'resetJournalFiltre','revoquerTousCollab','saveBudget','saveCentre','saveClient',
   'saveEffet','saveFacture','saveFournisseur','saveImmob','saveImputation','savePaie',
-  'saveSociete','saveStock','searchClientDrop','selectExport','sendToAI',
+  'saveSociete','saveStock','searchClientDrop','selectExport','sendRobotText','sendToAI',
   'skipToNextEcriture','switchTab','terminerAppel','terminerAppelVideo','toast',
   'toggleCam','toggleMic','toggleMobileSidebar','updateBudgetAccountSuggest',
   'updateExportOptions','updateFacTotaux','updateImmobCompte','updateImputMontant',
@@ -11371,14 +11588,14 @@ const __scope = { addFacLigne, addLigne, afficherDeclaration, afficherLettrage,
   lancerLettrage, navigate, onClickTopValidate, openBudgetModal, openCentreModal,
   openClientModal, openCollabModal, openDevisModal,
   openEffetModal, openExportModal, openFactureModal, openFournisseurModal,
-  openImmobModal, openPaieModal, openRobot, openSocieteModal,
+  openImmobModal, openImportModal, openPaieModal, openRobot, openSocieteModal,
   openStockModal, openWavePayment, ouvrirAppelVideo, ouvrirNouvelExercice,
   rejoindreCollab, renderBalance, renderBilan, renderClients,
   renderFactures, renderFournisseurs, renderGrandLivre, renderJournal,
   renderPlanComptable, resetBalanceFiltre, resetFactureFiltre, resetGLFiltre,
   resetJournalFiltre, revoquerTousCollab, saveBudget, saveCentre, saveClient,
   saveEffet, saveFacture, saveFournisseur, saveImmob, saveImputation, savePaie,
-  saveSociete, saveStock, searchClientDrop, selectExport, sendToAI,
+  saveSociete, saveStock, searchClientDrop, selectExport, sendRobotText, sendToAI,
   skipToNextEcriture, switchTab, terminerAppelVideo, toast,
   toggleCam, toggleMic, toggleMobileSidebar, shareScreen: () => {
     if (!document.getElementById('videoCallPanel') || navigator.mediaDevices?.getDisplayMedia === undefined) return;
