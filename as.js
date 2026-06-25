@@ -9506,6 +9506,10 @@ async function ouvrirNouvelExercice() {
   const yr = parseInt(document.getElementById('exerciceYear')?.value || new Date().getFullYear());
   const newYr = yr + 1;
   if (!confirm(`Ouvrir l'exercice ${newYr} ? Cela créera les écritures d'À Nouveau.`)) return;
+  // Feedback immédiat — l'opération Firestore peut prendre 1-2s
+  const btn = document.querySelector('.btn-gold[onclick*="ouvrirNouvelExercice"]');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Ouverture…'; }
+  toast('⏳ Création des écritures À Nouveau…', 'info');
   const map = getMap();
   const lignesAN = [];
   // Comptes de bilan (1 à 5) → report
@@ -9523,6 +9527,7 @@ async function ouvrirNouvelExercice() {
   document.getElementById('exerciceYear').value = String(newYr);
   updateStats();
   toast(`✓ Exercice ${newYr} ouvert — ${lignesAN.length} lignes d'À Nouveau`, 'success');
+  if (btn) { btn.disabled = false; btn.textContent = 'Ouvrir N+1'; }
 }
 
 window.verifierCloture = verifierCloture;
