@@ -2120,9 +2120,43 @@ function getStepLabel(ecr) {
 // ── État global ──
 let ecritures = [],
   lignes = [],
-  pieceCounter = 1,
+  pieceCounter = 1,        // conservé pour compatibilité (affichage placeholder)
+  journalCounters = {},    // { AC: 12, VE: 5, BQ: 3, … } — séquences persistantes
   currentProfile = null,
   isAILoading = false;  // Gardé pour compatibilité
+
+// ── Génère le prochain N° de pièce pour un journal donné ──
+// Format : VE-2024-00001  |  Non modifié même après suppression d'écriture.
+async function getNextPiece(journal) {
+  const yr = document.getElementById('exerciceYear')?.value || new Date().getFullYear();
+  const key = `${journal}_${yr}`;
+  // Charger depuis Firestore si pas encore en mémoire
+  if (journalCounters[key] === undefined) {
+    try {
+      const ownerID = getOwnerProfileId();
+      const snap = await window._fbGetDoc(
+        window._fbDoc(window._db, 'profiles', ownerID, 'config', 'journal_counters')
+      );
+      const stored = snap.exists() ? (snap.data() || {}) : {};
+      journalCounters[key] = stored[key] || 0;
+    } catch (e) {
+      journalCounters[key] = 0;
+    }
+  }
+  journalCounters[key]++;
+  // Persister immédiatement
+  try {
+    const ownerID = getOwnerProfileId();
+    await window._fbSetDoc(
+      window._fbDoc(window._db, 'profiles', ownerID, 'config', 'journal_counters'),
+      { [key]: journalCounters[key] },
+      { merge: true }
+    );
+  } catch (e) {
+    console.warn('[COMEO] Erreur persistance compteur pièce:', e.message);
+  }
+  return `${journal}-${yr}-${String(journalCounters[key]).padStart(5, '0')}`;
+}
 
 // ── Données des modules (déclarations globales manquantes) ──
 let salaries = [];
@@ -2678,6 +2712,7 @@ async function loadEcrituresFromFirestore() {
     const snap = await window._fbGetDocs(q);
     ecritures = [];
     snap.forEach((d) => ecritures.push({ ...d.data(), _docId: d.id }));
+    // pieceCounter (legacy) — la numérotation réelle est gérée par getNextPiece()
     pieceCounter = ecritures.length + 1;
   } catch (e) {
     console.error('Erreur chargement écritures:', e);
@@ -2844,7 +2879,9 @@ function fn(n) {
 }
 function fnPDF(n) {
   const num = Math.round(Number(n) || 0);
-  return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  const abs = Math.abs(num);
+  const formatted = abs.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  return num < 0 ? '(' + formatted + ')' : formatted;
 }
 window.fnPDF = fnPDF;
 function fs(n) {
@@ -2937,12 +2974,13 @@ async function autoSaveAllEcritures() {
       errors.push(`Écriture ${i + 1} [${ecr.journal}] : non équilibrée (Δ ${Math.abs(d - c)} FCFA)`);
       continue;
     }
-    const piece = 'N°' + String(pieceCounter).padStart(5, '0');
+    const journalCode = ecr.journal || 'OD';
+    const piece = await getNextPiece(journalCode);
     const lignesSorted = sortLignesDebitAvantCredit(valid);
     const ecriture = {
       id: Date.now() + i,
       date,
-      journal: ecr.journal || 'OD',
+      journal: journalCode,
       piece,
       libelle: ecr.libelle || 'Écriture IA',
       groupId,
@@ -2953,14 +2991,14 @@ async function autoSaveAllEcritures() {
       lignes: lignesSorted.map((l) => ({
         compte: String(l.compte),
         libelle: l.libelle || PC[String(l.compte)] || '',
-        debit: Math.round(parseFloat(l.debit) || 0),
-        credit: Math.round(parseFloat(l.credit) || 0),
+        debit: Math.round((parseFloat(l.debit) || 0) * 100) / 100,
+        credit: Math.round((parseFloat(l.credit) || 0) * 100) / 100,
       })),
     };
     const docId = await saveEcritureToFirestore(ecriture);
     if (docId) {
       ecritures.push(ecriture);
-      pieceCounter++;
+      pieceCounter++; // legacy display only
       saved++;
     }
     await new Promise((r) => setTimeout(r, 150));
@@ -3014,8 +3052,8 @@ function loadEcritureFromQueue(idx) {
   lignes = lignesSorted.map((l) => ({
     compte: String(l.compte || ''),
     libelle: l.libelle || PC[String(l.compte)] || '',
-    debit: Math.round(parseFloat(l.debit) || 0),
-    credit: Math.round(parseFloat(l.credit) || 0),
+    debit: Math.round((parseFloat(l.debit) || 0) * 100) / 100,
+    credit: Math.round((parseFloat(l.credit) || 0) * 100) / 100,
   }));
   const jSelect = document.getElementById('ecr-journal');
   if (jSelect && ecr.journal) jSelect.value = ecr.journal;
@@ -3539,7 +3577,9 @@ function updateBalance() {
 async function saveEcriture() {
   const date = document.getElementById('ecr-date').value;
   const journal = document.getElementById('ecr-journal').value;
-  const piece = document.getElementById('ecr-piece').value || 'N°' + String(pieceCounter).padStart(5, '0');
+  // Si l'utilisateur a tapé un numéro manuellement on le respecte, sinon on génère
+  const pieceManuel = document.getElementById('ecr-piece').value.trim();
+  const piece = pieceManuel || await getNextPiece(journal);
   const libelle = document.getElementById('ecr-libelle').value;
   if (!date) {
     toast('Veuillez saisir une date', 'error');
@@ -3581,8 +3621,8 @@ async function saveEcriture() {
     lignes: lignesSorted.map((l) => ({
       compte: String(l.compte),
       libelle: l.libelle || PC[String(l.compte)] || '',
-      debit: Math.round(parseFloat(l.debit) || 0),
-      credit: Math.round(parseFloat(l.credit) || 0),
+      debit: Math.round((parseFloat(l.debit) || 0) * 100) / 100,
+      credit: Math.round((parseFloat(l.credit) || 0) * 100) / 100,
     })),
   };
   const docId = await saveEcritureToFirestore(ecriture);
@@ -4775,14 +4815,14 @@ const sendToAI = async function(context) {
               let d = 0,
                 c = 0;
               ecr.lignes.forEach((l) => {
-                d += Math.round(parseFloat(l.debit) || 0);
-                c += Math.round(parseFloat(l.credit) || 0);
+                d += Math.round((parseFloat(l.debit) || 0) * 100) / 100;
+                c += Math.round((parseFloat(l.credit) || 0) * 100) / 100;
               });
               ecr.lignes = sortLignesDebitAvantCredit(
                 ecr.lignes.map((l) => ({
                   ...l,
-                  debit: Math.round(parseFloat(l.debit) || 0),
-                  credit: Math.round(parseFloat(l.credit) || 0),
+                  debit: Math.round((parseFloat(l.debit) || 0) * 100) / 100,
+                  credit: Math.round((parseFloat(l.credit) || 0) * 100) / 100,
                 })),
               );
               ecr.lignes = corrigerComptesErreurs(ecr.lignes);
@@ -4806,7 +4846,8 @@ const sendToAI = async function(context) {
         const confirmMsg =
           `✅ <strong>${ecrituresAI.length} écriture${ecrituresAI.length > 1 ? 's' : ''} liées</strong> préparées et groupées :<br>` +
           ecrituresAI.map((e, i) => `<br><strong>${i + 1}. [${e.journal}]</strong> ${e.libelle}`).join('') +
-          `<br><br>⚡ Cliquez <strong>"Tout enregistrer"</strong> pour valider toutes les écritures en un clic.`;
+          `<br><br>⚠️ <strong>Vérifiez chaque écriture avant d'enregistrer.</strong> Les propositions de l'IA doivent être validées par vous.<br>` +
+          `<br>⚡ Cliquez <strong>"Tout enregistrer"</strong> uniquement après vérification.`;
         appendMsg(context, 'ai', confirmMsg);
         setEcritureQueue(ecrituresAI);
         if (context === 'saisie') {
@@ -9001,25 +9042,25 @@ function exportTAFIREpdf() {
     head: [['RUBRIQUE SYSCOHADA', 'MONTANT (FCFA)']],
     body: [
       ['I — CAPACITÉ D\'AUTOFINANCEMENT', ''],
-      ['Résultat net de l\'exercice', fn(resultat)],
-      ['+ Dotations aux amortissements', fn(dotAmort)],
-      ['= CAF (Marge Brute d\'Autofinancement)', fn(caf)],
+      ['Résultat net de l\'exercice', fnPDF(resultat)],
+      ['+ Dotations aux amortissements', fnPDF(dotAmort)],
+      ['= CAF (Marge Brute d\'Autofinancement)', fnPDF(caf)],
       ['', ''],
       ['II — EMPLOIS ET RESSOURCES STABLES', ''],
-      ['Investissements (acquisitions ' + yr + ')', '- ' + fn(investissements)],
-      ['Ressources LT (emprunts 162)', '+ ' + fn(dettesLT)],
-      ['= Flux de financement stable', fn(caf - investissements + dettesLT)],
+      ['Investissements (acquisitions ' + yr + ')', '- ' + fnPDF(investissements)],
+      ['Ressources LT (emprunts 162)', '+ ' + fnPDF(dettesLT)],
+      ['= Flux de financement stable', fnPDF(caf - investissements + dettesLT)],
       ['', ''],
       ['III — VARIATION DU BFR', ''],
-      ['Créances clients (411)', fn(clients411)],
-      ['Stocks (3xxx)', fn(stocks3)],
-      ['Dettes fournisseurs (401)', fn(fourn401)],
-      ['= Variation BFR', fn(clients411 + stocks3 - fourn401)],
+      ['Créances clients (411)', fnPDF(clients411)],
+      ['Stocks (3xxx)', fnPDF(stocks3)],
+      ['Dettes fournisseurs (401)', fnPDF(fourn401)],
+      ['= Variation BFR', fnPDF(clients411 + stocks3 - fourn401)],
       ['', ''],
       ['IV — TRÉSORERIE NETTE', ''],
-      ['Solde trésorerie clôture (5xxx)', fn(tresorerie5)],
+      ['Solde trésorerie clôture (5xxx)', fnPDF(tresorerie5)],
     ],
-    foot: [['FLUX DE TRÉSORERIE NET', fn(tresorerie5)]],
+    foot: [['FLUX DE TRÉSORERIE NET', fnPDF(tresorerie5)]],
     styles: { font: 'helvetica', fontSize: 9, cellPadding: 3 },
     headStyles: { fillColor: [10,11,16], textColor: [212,168,83], fontStyle: 'bold' },
     footStyles: { fillColor: [10,11,16], textColor: [212,168,83], fontStyle: 'bold', fontSize: 11 },
@@ -9355,8 +9396,8 @@ function renderLettrage() {
     el.innerHTML = `<div class="empty-state"><div class="icon">🔗</div><p>Aucun mouvement sur les comptes ${lettrageMode}xxx.</p></div>`;
     return;
   }
-  // Balance âgée
-  el.innerHTML = `<div class="dtw"><table class="balance-agee-table"><thead><tr><th>Tiers</th><th>&lt; 30j</th><th>30–60j</th><th class="col-retard">60–90j</th><th class="col-tres-retard">&gt; 90j</th><th>Total</th></tr></thead><tbody>${
+  // Balance âgée + détail lettrage si lancé
+  el.innerHTML = `<div class="dtw"><table class="balance-agee-table"><thead><tr><th>Tiers</th><th>&lt; 30j</th><th>30–60j</th><th class="col-retard">60–90j</th><th class="col-tres-retard">&gt; 90j</th><th>Total</th><th>Solde résiduel</th></tr></thead><tbody>${
     Object.entries(tiersMvts).map(([tiers, data]) => {
       const ranges = [0, 0, 0, 0];
       data.mvts.forEach(m => {
@@ -9367,12 +9408,92 @@ function renderLettrage() {
         else if (age < 90) ranges[2] += val;
         else ranges[3] += val;
       });
-      return `<tr><td><strong>${tiers}</strong></td><td>${fn(ranges[0])}</td><td>${fn(ranges[1])}</td><td class="col-retard">${fn(ranges[2])}</td><td class="col-tres-retard">${fn(ranges[3])}</td><td style="font-weight:700">${fn(Math.abs(data.solde))}</td></tr>`;
+      const etat = lettrageState[tiers];
+      const residuel = etat ? etat.soldeResiduel : null;
+      const residuelCell = residuel !== null
+        ? `<span style="color:${Math.abs(residuel)<0.01?'var(--green)':'var(--red)'}">
+             ${Math.abs(residuel)<0.01 ? '✓ Lettré' : fn(Math.abs(residuel)) + ' FCFA'}
+           </span>`
+        : '<span style="color:var(--muted)">—</span>';
+      return `<tr>
+        <td><strong>${tiers}</strong></td>
+        <td>${fn(ranges[0])}</td><td>${fn(ranges[1])}</td>
+        <td class="col-retard">${fn(ranges[2])}</td>
+        <td class="col-tres-retard">${fn(ranges[3])}</td>
+        <td style="font-weight:700">${fn(Math.abs(data.solde))}</td>
+        <td>${residuelCell}</td>
+      </tr>
+      ${etat && etat.lettres.length ? `<tr><td colspan="7" style="padding:4px 12px;background:var(--surface3,var(--surface2));font-size:11px;color:var(--muted)">
+        ${etat.lettres.map(l => `↔ ${l.date} : Facture ${l.facture} ↔ Règl. ${l.reglement} = <strong>${fn(l.montant)} FCFA</strong>`).join(' &nbsp;|&nbsp; ')}
+      </td></tr>` : ''}`;
     }).join('')
   }</tbody></table></div>`;
 }
 
-function lancerLettrage() { toast('Lettrage automatique — les mouvements équilibrés ont été marqués.', 'success'); renderLettrage(); }
+// ── État lettrage ──
+let lettrageState = {};   // { tiers: { factures: [...], reglements: [...], soldeResiduel } }
+
+/**
+ * Lettrage automatique ligne à ligne : associe chaque règlement à la facture
+ * la plus ancienne non encore lettrée (ordre chronologique FIFO).
+ * Met à jour lettrageState et rafraîchit l'affichage.
+ */
+function lancerLettrage() {
+  const map = getMap();
+  lettrageState = {};
+
+  // Collecter tous les mouvements sur les comptes 40x / 41x par tiers (libellé)
+  Object.entries(map)
+    .filter(([c]) => c.startsWith(lettrageMode))
+    .forEach(([c, acc]) => {
+      acc.mvts.forEach((m) => {
+        const tiers = m.libelle || c;
+        if (!lettrageState[tiers]) {
+          lettrageState[tiers] = { factures: [], reglements: [], lettres: [], soldeResiduel: 0 };
+        }
+        const entry = { ...m, compte: c, reste: Math.abs(m.debit - m.credit) };
+        if (m.debit > m.credit) {
+          lettrageState[tiers].factures.push(entry);        // débit = créance client
+        } else {
+          lettrageState[tiers].reglements.push(entry);      // crédit = règlement
+        }
+      });
+    });
+
+  // Trier par date (FIFO)
+  Object.values(lettrageState).forEach((t) => {
+    t.factures.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    t.reglements.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+    // Imputation FIFO
+    const regl = t.reglements.map((r) => ({ ...r, reste: r.reste }));
+    t.factures.forEach((f) => {
+      let resteF = f.reste;
+      regl.forEach((r) => {
+        if (resteF <= 0 || r.reste <= 0) return;
+        const imput = Math.min(resteF, r.reste);
+        resteF -= imput;
+        r.reste -= imput;
+        t.lettres.push({
+          date: r.date,
+          facture: f.date + ' · ' + fn(f.reste),
+          reglement: r.date + ' · ' + fn(r.reste + imput),
+          montant: imput,
+          lettree: resteF < 0.01,
+        });
+      });
+      f.reste = resteF;
+    });
+
+    // Solde résiduel non lettré
+    t.soldeResiduel = t.factures.reduce((s, f) => s + f.reste, 0)
+                    - regl.reduce((s, r) => s + r.reste, 0);
+  });
+
+  renderLettrage();
+  const nb = Object.values(lettrageState).reduce((s, t) => s + t.lettres.length, 0);
+  toast(`Lettrage FIFO — ${nb} association${nb > 1 ? 's' : ''} effectuée${nb > 1 ? 's' : ''}`, 'success');
+}
 function exportBalanceAgeePDF() {
   try {
     const { jsPDF } = window.jspdf;
@@ -9706,7 +9827,7 @@ async function importJournalRows(rows, header) {
     ecritures.push(newEcr);
     imported++;
   }
-  pieceCounter = ecritures.length + 1;
+  pieceCounter = ecritures.length + 1; // legacy — réel géré par getNextPiece()
   updateStats();
   await logAudit('IMPORT', 'COMPTABILITE', `Import Saari : ${imported} écriture(s) importée(s), ${skipped} ignorée(s) (déséquilibrées)`, currentProfile.email);
   toast(`✓ Import terminé — ${imported} écriture(s) importée(s)${skipped ? `, ${skipped} ignorée(s) (déséquilibre)` : ''}`, imported > 0 ? 'success' : 'error');
