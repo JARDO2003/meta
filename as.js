@@ -94,12 +94,12 @@ document.dispatchEvent(new Event('firebase-ready'));
 
 // ══════════════════════════════════════════
 // CONFIGURATION SERVEUR — Chargée depuis Firestore (server_config)
-// Les clés API Groq, Mistral et l'ordre des modèles sont gérés via server.html
+// Les clés API Gemini, Mistral et l'ordre des modèles sont gérés via server.html
 // JAMAIS de clé API en dur dans ce fichier
 // ══════════════════════════════════════════
-let GROQ_API_KEYS = ['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'];    // Clé API Groq directe
+let GROQ_API_KEYS = ['AQ.Ab8RN6L5MrI8fgrzk7lhfKjXmEmmcG1FXhldUNpsE2xCsgnK1g'];    // Clé API Gemini directe
 let GROQ_MODELS = [];      // Chargées depuis server_config/models
-let groqKeyIdx = 0;        // Index rotation clés Groq
+let groqKeyIdx = 0;        // Index rotation clés Gemini
 let groqModelIdx = 0;      // Index rotation modèles Groq
 // File d'attente : requêtes en attente d'une clé libre
 const groqQueue = [];
@@ -362,51 +362,66 @@ function releaseGroqKey(idx) {
 }
 
 /**
- * Appel Groq avec file d'attente + rotation modèles.
+ * Appel Gemini avec file d'attente + rotation modèles.
  * Réessaie automatiquement sur les autres clés en cas de 429.
  * Retourne { data, keyIdx } ou null si toutes les clés échouent.
  */
 async function callGroqQueued(messages, systemPrompt, maxTokens = 6000, temperature = 0.02) {
   if (GROQ_API_KEYS.length === 0) {
-    return { error: 'no_keys', msg: '⚠️ Aucune clé API Groq configurée dans le système.' };
+    return { error: 'no_keys', msg: '⚠️ Aucune clé API Gemini configurée dans le système.' };
   }
 
   const triedKeys = new Set();
   let keyIdx = await acquireGroqKey();
-  // Collecter les erreurs par clé pour un rapport détaillé
   const keyErrors = [];
 
   try {
     while (triedKeys.size < GROQ_API_KEYS.length) {
       triedKeys.add(keyIdx);
-      const model = GROQ_MODELS[groqModelIdx % GROQ_MODELS.length];
+      const model = 'gemini-1.5-flash'; // Modèle Gemini
       const keyShort = 'clé ' + (keyIdx + 1) + '/' + GROQ_API_KEYS.length;
       try {
-        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        // Format pour Gemini API
+        const contents = messages.map(msg => ({
+          role: msg.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: msg.content }]
+        }));
+
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GROQ_API_KEYS[keyIdx]}`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${GROQ_API_KEYS[keyIdx]}`,
           },
           body: JSON.stringify({
-            model,
-            max_tokens: maxTokens,
-            temperature,
-            top_p: 0.95,
-            messages: [{ role: 'system', content: systemPrompt }, ...messages],
+            contents,
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+            generationConfig: {
+              temperature,
+              topP: 0.95,
+              maxOutputTokens: maxTokens,
+            },
           }),
         });
 
         if (response.ok) {
-          groqModelIdx = (groqModelIdx + 1) % GROQ_MODELS.length;
           const data = await response.json();
-          console.log(`[COMEO Queue] ✅ Groq OK — clé ${keyIdx + 1}, modèle: ${model}`);
-          return { data, keyIdx };
+          console.log(`[COMEO Queue] ✅ Gemini OK — clé ${keyIdx + 1}, modèle: ${model}`);
+          // Transformer la réponse Gemini au format attendu (compatible Groq)
+          const transformedData = {
+            choices: [
+              {
+                message: {
+                  content: data?.candidates?.[0]?.content?.parts?.[0]?.text || '',
+                },
+              },
+            ],
+          };
+          return { data: transformedData, keyIdx };
         }
 
         const status = response.status;
         const errBody = await response.json().catch(() => ({}));
-        const apiMsg  = errBody?.error?.message || '';
+        const apiMsg = errBody?.error?.message || '';
 
         if (status === 429) {
           keyErrors.push({ keyNum: keyIdx + 1, code: 429, detail: 'Quota dépassé (rate limit)' });
@@ -423,7 +438,7 @@ async function callGroqQueued(messages, systemPrompt, maxTokens = 6000, temperat
           }
           if (!found) {
             const detail = keyErrors.map(e => `clé ${e.keyNum} : ${e.detail}`).join(' · ');
-            return { error: 'all_rate_limited', msg: `⚠️ Toutes les clés Groq sont saturées (quota dépassé).\n${detail}\n\nRéessayez dans quelques secondes.` };
+            return { error: 'all_rate_limited', msg: `⚠️ Toutes les clés Gemini sont saturées (quota dépassé).\n${detail}\n\nRéessayez dans quelques secondes.` };
           }
           continue;
         }
@@ -443,23 +458,21 @@ async function callGroqQueued(messages, systemPrompt, maxTokens = 6000, temperat
           }
           if (!found) {
             const detail = keyErrors.map(e => `clé ${e.keyNum} : ${e.detail}`).join(' · ');
-            return { error: 'invalid_keys', msg: `🔑 Problème avec vos clés API Groq.\n${detail}\n\nVérifiez vos clés dans le système.` };
+            return { error: 'invalid_keys', msg: `🔑 Problème avec vos clés API Gemini.\n${detail}\n\nVérifiez vos clés dans le système.` };
           }
           continue;
         }
 
-        // Autre erreur HTTP inattendue
         keyErrors.push({ keyNum: keyIdx + 1, code: status, detail: apiMsg || `Erreur HTTP ${status}` });
         console.warn(`[COMEO Queue] ${keyShort} — erreur ${status} : ${apiMsg}`);
-        return { error: 'api_error', msg: `❌ Erreur API Groq (${status})${apiMsg ? ' : ' + apiMsg : ''}.\n.` };
+        return { error: 'api_error', msg: `❌ Erreur API Gemini (${status})${apiMsg ? ' : ' + apiMsg : ''}.` };
 
       } catch (e) {
-        // Erreur réseau (pas de connexion internet, timeout…)
         console.warn(`[COMEO Queue] Exception réseau: ${e.message}`);
-        return { error: 'network', msg: `📡 Impossible de contacter Groq. Vérifiez votre connexion internet.\n(${e.message})` };
+        return { error: 'network', msg: `📡 Impossible de contacter Gemini. Vérifiez votre connexion internet.\n(${e.message})` };
       }
     }
-    return { error: 'exhausted', msg: '⚠️ Toutes les clés Groq ont été essayées sans succès.' };
+    return { error: 'exhausted', msg: '⚠️ Toutes les clés Gemini ont été essayées sans succès.' };
   } finally {
     if (keyIdx !== undefined && groqKeyBusy[keyIdx]) releaseGroqKey(keyIdx);
   }
@@ -4415,7 +4428,7 @@ const sendToAI = async function(context) {
   if (!requireSubscriptionAccess()) return;
 
   if (!isAiServiceReady()) {
-    appendMsg(context, 'ai', '⚠️ Aucune clé API Groq configurée. Clés configurées dans le système pour activer l\'assistant IA.');
+    appendMsg(context, 'ai', '⚠️ Aucune clé API Gemini configurée. Clés configurées dans le système pour activer l\'assistant IA.');
     return;
   }
 
@@ -4490,8 +4503,8 @@ const sendToAI = async function(context) {
     // ══ AUCUN PROVIDER DISPONIBLE ══
     if (!data) {
       const noKeyMsg = GROQ_API_KEYS.length === 0
-        ? '⚠️ Aucune clé API Groq configurée. Clés configurées dans le système pour activer l\'IA.'
-        : '⚠️ Toutes les clés Groq sont indisponibles. Vérifiez vos clés dans le système.';
+        ? '⚠️ Aucune clé API Gemini configurée. Clés configurées dans le système pour activer l\'IA.'
+        : '⚠️ Toutes les clés Gemini sont indisponibles. Vérifiez vos clés dans le système.';
       removeTyping(context, tid);
       conversationHistory.pop();
       appendMsg(context, 'ai', noKeyMsg);
@@ -4599,7 +4612,7 @@ const sendToAI = async function(context) {
     updateServiceAvailabilityUI();
     const errMsg = err?.groqMsg || (
       GROQ_API_KEYS.length === 0
-        ? '⚠️ Aucune clé API Groq configurée. Clés configurées dans le système pour activer l\'assistant IA.'
+        ? '⚠️ Aucune clé API Gemini configurée. Clés configurées dans le système pour activer l\'assistant IA.'
         : `❌ Erreur inattendue : ${err?.message || 'inconnue'}. Vérifiez vos clés dans le système.`
     );
     appendMsg(context, 'ai', errMsg);
@@ -6321,7 +6334,7 @@ async function handleRobotQuery(query) {
   setRobotBubble('<span class="robot-thinking">…</span>');
 
   if (!isAiServiceReady()) {
-    const msg = '⚠️ Aucune clé API Groq configurée. Clés configurées dans le système.';
+    const msg = '⚠️ Aucune clé API Gemini configurée. Clés configurées dans le système.';
     robotSpeak(msg, { skipBubble: true });
     setRobotBubble('<span class="service-msg-inline">' + msg + '</span>');
     setRobotStatus('online');
@@ -7548,11 +7561,11 @@ groqKeyBusy = new Array(GROQ_API_KEYS.length).fill(false);
 
 // ── La fonction loadServerConfig() est déjà déclarée plus haut (ligne 113) ──
 
-// ══ API PUBLIQUE — Gestion des clés Groq depuis CC.html ══
+// ══ API PUBLIQUE — Gestion des clés Gemini depuis CC.html ══
 /**
- * Appelée depuis CC.html pour définir / recharger les clés Groq.
+ * Appelée depuis CC.html pour définir / recharger les clés Gemini.
  * Peut être appelée à tout moment (y compris après le chargement de la page).
- * @param {string[]} keys  Tableau de clés API Groq
+ * @param {string[]} keys  Tableau de clés API Gemini
  * @param {string[]} [models] Optionnel : liste de modèles Groq
  */
 window.setGroqKeysFromCC = function(keys, models) {
