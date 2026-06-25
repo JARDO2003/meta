@@ -1702,3 +1702,36 @@ body { font-family:var(--font-body); background:var(--paper); color:var(--ink); 
 @media (max-width:768px) {
   .societes-grid { grid-template-columns:1fr; }
 }
+
+/* ══════════════════════════════════════════
+   ROBOT — SAISIE TEXTE (alternative au micro)
+   ══════════════════════════════════════════ */
+.robot-text-row {
+  display:flex; align-items:center; gap:10px;
+  width:100%; max-width:480px;
+  margin-top:8px;
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.1);
+  border-radius:40px; padding:8px 8px 8px 18px;
+  transition:border-color .2s;
+}
+.robot-text-row:focus-within {
+  border-color:rgba(212,168,83,.5);
+  background:rgba(212,168,83,.04);
+}
+.robot-text-input {
+  flex:1; background:transparent; border:none; outline:none;
+  color:rgba(255,255,255,.85); font-family:var(--font-body);
+  font-size:13px; line-height:1.4;
+  caret-color:var(--warm);
+}
+.robot-text-input::placeholder { color:rgba(255,255,255,.22); }
+.robot-text-send {
+  width:36px; height:36px; border-radius:50%; flex-shrink:0;
+  background:linear-gradient(145deg,rgba(212,168,83,.3),rgba(212,168,83,.1));
+  border:1px solid rgba(212,168,83,.4); color:var(--warm);
+  cursor:pointer; display:flex; align-items:center; justify-content:center;
+  transition:all .18s;
+}
+.robot-text-send:hover { background:rgba(212,168,83,.25); transform:scale(1.07); }
+.robot-text-send svg { width:15px; height:15px; fill:currentColor; }
