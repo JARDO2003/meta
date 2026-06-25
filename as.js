@@ -4634,11 +4634,6 @@ const sendToAI = async function(context) {
         fullText = cached;
         // Sauter directement au traitement de la réponse
         appendMsg(context, 'ai', fullText);
-        endAIOperation(context);
-        if (sendBtnId) {
-          const btn = document.getElementById(sendBtnId);
-          if (btn) btn.disabled = false;
-        }
         return;
       }
     }
@@ -4665,8 +4660,6 @@ const sendToAI = async function(context) {
         removeTyping(context, tid);
         conversationHistory.pop();
         appendMsg(context, 'ai', result.msg);
-        endAIOperation(context);
-        if (sendBtnId) { const btn = document.getElementById(sendBtnId); if (btn) btn.disabled = false; }
         return;
       }
     }
@@ -4679,8 +4672,6 @@ const sendToAI = async function(context) {
       removeTyping(context, tid);
       conversationHistory.pop();
       appendMsg(context, 'ai', noKeyMsg);
-      endAIOperation(context);
-      if (sendBtnId) { const btn = document.getElementById(sendBtnId); if (btn) btn.disabled = false; }
       return;
     }
 
@@ -4813,11 +4804,14 @@ const sendToAI = async function(context) {
         : `❌ Erreur inattendue : ${err?.message || 'inconnue'}. Vérifiez vos clés dans le système.`
     );
     appendMsg(context, 'ai', errMsg);
-  }
-  isAILoading = false;
-  if (sendBtnId) {
-    const btn = document.getElementById(sendBtnId);
-    if (btn) btn.disabled = false;
+  } finally {
+    // Toujours libérer le verrou — même en cas d'erreur ou de retour anticipé
+    endAIOperation(context);
+    isAILoading = false;
+    if (sendBtnId) {
+      const btn = document.getElementById(sendBtnId);
+      if (btn) btn.disabled = false;
+    }
   }
 };
 
