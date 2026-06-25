@@ -97,7 +97,10 @@ document.dispatchEvent(new Event('firebase-ready'));
 // Les clés API OpenRouter, Mistral et l'ordre des modèles sont gérés via server.html
 // JAMAIS de clé API en dur dans ce fichier
 // ══════════════════════════════════════════
-let GROQ_API_KEYS = ['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'];    // Clé API OpenRouter directe
+// ── Clés API multiples (OpenRouter + Gemini fallback) ──
+let OPENROUTER_KEYS = ['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'];
+let GEMINI_KEYS = ['AQ.Ab8RN6LRPDzoKC3Y9_iM5VM1uuFTHdya_sS3k699IrMu2BeFHg'];
+let GROQ_API_KEYS = ['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'];    // Alias pour compatibilité
 let GROQ_MODELS = [];      // Chargées depuis server_config/models
 let groqKeyIdx = 0;        // Index rotation clés OpenRouter
 let groqModelIdx = 0;      // Index rotation modèles Groq
@@ -409,8 +412,16 @@ async function callGroqQueued(messages, systemPrompt, maxTokens = 6000, temperat
 
         if (status === 429) {
           keyErrors.push({ keyNum: keyIdx + 1, code: 429, detail: 'Quota dépassé (rate limit)' });
-          console.warn(`[COMEO Queue] ${keyShort} saturée (429) → rotation`);
+          console.warn(`[COMEO Queue] ${keyShort} saturée (429) → essai Gemini en fallback`);
           releaseGroqKey(keyIdx);
+          
+          // 🔄 Basculer sur Gemini si OpenRouter est saturé
+          const geminiResult = await callGemini(messages, systemPrompt, maxTokens, temperature);
+          if (!geminiResult.error) {
+            console.log(`[COMEO] ✅ Fallback Gemini réussi`);
+            return geminiResult;
+          }
+          
           let found = false;
           for (let i = 0; i < GROQ_API_KEYS.length; i++) {
             const candidate = (keyIdx + 1 + i) % GROQ_API_KEYS.length;
@@ -422,7 +433,7 @@ async function callGroqQueued(messages, systemPrompt, maxTokens = 6000, temperat
           }
           if (!found) {
             const detail = keyErrors.map(e => `clé ${e.keyNum} : ${e.detail}`).join(' · ');
-            return { error: 'all_rate_limited', msg: `⚠️ Toutes les clés OpenRouter sont saturées (quota dépassé).\n${detail}\n\nRéessayez dans quelques secondes.` };
+            return { error: 'all_rate_limited', msg: `⚠️ OpenRouter saturé et Gemini indisponible.\n${detail}\n\nVeuillez patienter quelques instants et réessayez.` };
           }
           continue;
         }
@@ -460,6 +471,78 @@ async function callGroqQueued(messages, systemPrompt, maxTokens = 6000, temperat
   } finally {
     if (keyIdx !== undefined && groqKeyBusy[keyIdx]) releaseGroqKey(keyIdx);
   }
+}
+
+/**
+ * Appel Gemini API (fallback si OpenRouter rate limit)
+ */
+async function callGemini(messages, systemPrompt, maxTokens = 6000, temperature = 0.02) {
+  if (GEMINI_KEYS.length === 0) {
+    return { error: 'no_gemini', msg: '⚠️ Clé Gemini non configurée.' };
+  }
+
+  for (let geminiKeyIdx = 0; geminiKeyIdx < GEMINI_KEYS.length; geminiKeyIdx++) {
+    try {
+      console.log(`[COMEO Fallback] 🔄 Essai Gemini clé ${geminiKeyIdx + 1}...`);
+      
+      const contents = [
+        {
+          role: 'user',
+          parts: [{ text: systemPrompt }]
+        },
+        ...messages.map(msg => ({
+          role: msg.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: msg.content }]
+        }))
+      ];
+
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEYS[geminiKeyIdx]}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents,
+          generationConfig: {
+            temperature,
+            topP: 0.95,
+            maxOutputTokens: maxTokens,
+          },
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log(`[COMEO Fallback] ✅ Gemini OK`);
+        // Transformer réponse Gemini au format OpenAI
+        const transformedData = {
+          choices: [{
+            message: {
+              content: data?.candidates?.[0]?.content?.parts?.[0]?.text || '',
+            },
+          }],
+        };
+        return { data: transformedData, provider: 'gemini' };
+      }
+
+      const status = response.status;
+      if (status === 429) {
+        console.warn(`[COMEO Fallback] Gemini saturé (429), prochaine clé...`);
+        continue;
+      }
+      
+      if (status === 401 || status === 403) {
+        console.warn(`[COMEO Fallback] Clé Gemini invalide (${status})`);
+        continue;
+      }
+
+      const errBody = await response.json().catch(() => ({}));
+      console.warn(`[COMEO Fallback] Erreur Gemini ${status}: ${errBody?.error?.message || ''}`);
+      
+    } catch (e) {
+      console.warn(`[COMEO Fallback] Exception Gemini: ${e.message}`);
+    }
+  }
+
+  return { error: 'gemini_failed', msg: '❌ Gemini indisponible. Réessayez dans quelques instants.' };
 }
 
 function requireSubscriptionAccess() {
@@ -4466,9 +4549,16 @@ const sendToAI = async function(context) {
     // ══ ÉTAPE 1 : GROQ — file d'attente multi-clés ══
     if (GROQ_API_KEYS.length > 0) {
       const allBusy = groqKeyBusy.length > 0 && groqKeyBusy.every(Boolean);
+      const queueLength = groqQueue.length;
       if (allBusy) {
         const typingEl = document.getElementById(tid);
-        if (typingEl) typingEl.innerHTML = '⏳ <em>IA en réflexion, veuillez patienter…</em>';
+        if (typingEl) {
+          let msg = '⏳ <em>Je réfléchis sur votre demande…</em>';
+          if (queueLength > 0) {
+            msg = `⏳ <em>Je réfléchis… (${queueLength} ${queueLength > 1 ? 'autres demandes' : 'autre demande'} en attente)</em>`;
+          }
+          typingEl.innerHTML = msg;
+        }
       }
       const result = await callGroqQueued(conversationHistory, systemPrompt, 6000, 0.02);
       if (result && result.data) {
