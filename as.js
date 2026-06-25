@@ -369,16 +369,20 @@ function releaseGroqKey(idx) {
  * Retourne { data, keyIdx } ou null si toutes les clés échouent.
  */
 async function callGroqQueued(messages, systemPrompt, maxTokens = 6000, temperature = 0.02) {
-  if (GROQ_API_KEYS.length === 0) return null;
+  if (GROQ_API_KEYS.length === 0) {
+    return { error: 'no_keys', msg: '⚠️ Aucune clé API Groq configurée. Rendez-vous dans le Centre de Contrôle (CC.html) pour en ajouter.' };
+  }
 
-  // Tentative sur la clé acquise, puis fallback sur les autres
   const triedKeys = new Set();
   let keyIdx = await acquireGroqKey();
+  // Collecter les erreurs par clé pour un rapport détaillé
+  const keyErrors = [];
 
   try {
     while (triedKeys.size < GROQ_API_KEYS.length) {
       triedKeys.add(keyIdx);
       const model = GROQ_MODELS[groqModelIdx % GROQ_MODELS.length];
+      const keyShort = 'clé ' + (keyIdx + 1) + '/' + GROQ_API_KEYS.length;
       try {
         const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
           method: 'POST',
@@ -403,11 +407,13 @@ async function callGroqQueued(messages, systemPrompt, maxTokens = 6000, temperat
         }
 
         const status = response.status;
+        const errBody = await response.json().catch(() => ({}));
+        const apiMsg  = errBody?.error?.message || '';
+
         if (status === 429) {
-          console.warn(`[COMEO Queue] Clé ${keyIdx + 1} saturée (429) → chercher une autre clé libre`);
-          // Libérer cette clé et acquérir la suivante disponible
+          keyErrors.push({ keyNum: keyIdx + 1, code: 429, detail: 'Quota dépassé (rate limit)' });
+          console.warn(`[COMEO Queue] ${keyShort} saturée (429) → rotation`);
           releaseGroqKey(keyIdx);
-          // Chercher une autre clé non encore essayée
           let found = false;
           for (let i = 0; i < GROQ_API_KEYS.length; i++) {
             const candidate = (keyIdx + 1 + i) % GROQ_API_KEYS.length;
@@ -417,20 +423,46 @@ async function callGroqQueued(messages, systemPrompt, maxTokens = 6000, temperat
               break;
             }
           }
-          if (!found) return null; // toutes les clés ont été essayées
+          if (!found) {
+            const detail = keyErrors.map(e => `clé ${e.keyNum} : ${e.detail}`).join(' · ');
+            return { error: 'all_rate_limited', msg: `⚠️ Toutes les clés Groq sont saturées (quota dépassé).\n${detail}\n\nAjoutez d'autres clés dans CC.html ou réessayez dans quelques secondes.` };
+          }
           continue;
         }
-        // Autres erreurs : on abandonne
-        console.warn(`[COMEO Queue] Erreur Groq ${status}`);
-        return null;
+
+        if (status === 401 || status === 403) {
+          keyErrors.push({ keyNum: keyIdx + 1, code: status, detail: 'Clé invalide ou révoquée' });
+          console.warn(`[COMEO Queue] ${keyShort} invalide (${status})`);
+          releaseGroqKey(keyIdx);
+          let found = false;
+          for (let i = 0; i < GROQ_API_KEYS.length; i++) {
+            const candidate = (keyIdx + 1 + i) % GROQ_API_KEYS.length;
+            if (!triedKeys.has(candidate)) {
+              keyIdx = await acquireGroqKey();
+              found = true;
+              break;
+            }
+          }
+          if (!found) {
+            const detail = keyErrors.map(e => `clé ${e.keyNum} : ${e.detail}`).join(' · ');
+            return { error: 'invalid_keys', msg: `🔑 Problème avec vos clés API Groq.\n${detail}\n\nVérifiez et mettez à jour vos clés dans CC.html.` };
+          }
+          continue;
+        }
+
+        // Autre erreur HTTP inattendue
+        keyErrors.push({ keyNum: keyIdx + 1, code: status, detail: apiMsg || `Erreur HTTP ${status}` });
+        console.warn(`[COMEO Queue] ${keyShort} — erreur ${status} : ${apiMsg}`);
+        return { error: 'api_error', msg: `❌ Erreur API Groq (${status})${apiMsg ? ' : ' + apiMsg : ''}.\nSi le problème persiste, vérifiez vos clés dans CC.html.` };
+
       } catch (e) {
-        console.warn(`[COMEO Queue] Exception: ${e.message}`);
-        return null;
+        // Erreur réseau (pas de connexion internet, timeout…)
+        console.warn(`[COMEO Queue] Exception réseau: ${e.message}`);
+        return { error: 'network', msg: `📡 Impossible de contacter Groq. Vérifiez votre connexion internet.\n(${e.message})` };
       }
     }
-    return null;
+    return { error: 'exhausted', msg: '⚠️ Toutes les clés Groq ont été essayées sans succès.' };
   } finally {
-    // Toujours libérer la clé courante
     if (keyIdx !== undefined && groqKeyBusy[keyIdx]) releaseGroqKey(keyIdx);
   }
 }
@@ -4438,20 +4470,36 @@ const sendToAI = async function(context) {
 
     // ══ ÉTAPE 1 : GROQ — file d'attente multi-clés ══
     if (GROQ_API_KEYS.length > 0) {
-      // Si toutes les clés sont occupées, avertir l'utilisateur qu'il attend
       const allBusy = groqKeyBusy.length > 0 && groqKeyBusy.every(Boolean);
       if (allBusy) {
-        // Mettre à jour le message de l'indicateur de frappe pour patienter
         const typingEl = document.getElementById(tid);
         if (typingEl) typingEl.innerHTML = '⏳ <em>IA en réflexion, veuillez patienter…</em>';
       }
       const result = await callGroqQueued(conversationHistory, systemPrompt, 6000, 0.02);
-      if (result) data = result.data;
+      if (result && result.data) {
+        data = result.data;
+      } else if (result && result.error) {
+        // Erreur connue → afficher le message explicite dans l'inbox et sortir
+        removeTyping(context, tid);
+        conversationHistory.pop();
+        appendMsg(context, 'ai', result.msg);
+        isAILoading = false;
+        if (sendBtnId) { const btn = document.getElementById(sendBtnId); if (btn) btn.disabled = false; }
+        return;
+      }
     }
 
     // ══ AUCUN PROVIDER DISPONIBLE ══
     if (!data) {
-      throw new Error('Toutes les clés Groq sont indisponibles');
+      const noKeyMsg = GROQ_API_KEYS.length === 0
+        ? '⚠️ Aucune clé API Groq configurée. Ajoutez vos clés dans CC.html pour activer l\'IA.'
+        : '⚠️ Toutes les clés Groq sont indisponibles. Vérifiez vos clés dans CC.html.';
+      removeTyping(context, tid);
+      conversationHistory.pop();
+      appendMsg(context, 'ai', noKeyMsg);
+      isAILoading = false;
+      if (sendBtnId) { const btn = document.getElementById(sendBtnId); if (btn) btn.disabled = false; }
+      return;
     }
 
     // ══ TRAITEMENT DE LA RÉPONSE ══
@@ -6531,7 +6579,12 @@ ANALYSE AUTOMATIQUE :
       const allBusy = groqKeyBusy.length > 0 && groqKeyBusy.every(Boolean);
       if (allBusy) setRobotBubble('⏳ IA en réflexion, veuillez patienter…');
       const result = await callGroqQueued(robotConvHistory, systemRobot, 420, 0.62);
-      if (result) data = result.data;
+      if (result && result.data) {
+        data = result.data;
+      } else if (result && result.error) {
+        setRobotBubble(result.msg);
+        return;
+      }
     }
 
     if (!data) throw new Error('Tous les providers indisponibles');
