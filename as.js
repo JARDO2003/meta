@@ -4437,7 +4437,6 @@ const sendToAI = async function(context) {
     }
 
     // ══ ÉTAPE 1 : GROQ — file d'attente multi-clés ══
-    let data = null;
     if (GROQ_API_KEYS.length > 0) {
       // Si toutes les clés sont occupées, avertir l'utilisateur qu'il attend
       const allBusy = groqKeyBusy.length > 0 && groqKeyBusy.every(Boolean);
