@@ -1699,6 +1699,44 @@
     <div class="rstat"><div class="rstat-dot" style="background:#8b5cf6"></div><span>Langue</span><span class="rstat-val">Français</span></div>
   </div>
 </div>
+<!-- ═══════════════════════════════════
+     MODAL PLAN COMPTABLE 3D
+     ═══════════════════════════════════ -->
+<div id="pcModalOverlay" onclick="if(event.target===this)closePcModal()">
+  <div id="pcModal">
+
+    <!-- En-tête -->
+    <div id="pcModalHeader">
+      <div>
+        <div class="pcm-title">📋 Plan Comptable SYSCOHADA</div>
+        <div class="pcm-subtitle">OHADA 2023 · Cliquez un compte pour le sélectionner</div>
+      </div>
+      <input id="pcModalSearch" type="text" placeholder="🔍  Rechercher par numéro ou libellé…" oninput="renderPcModal()" autocomplete="off">
+      <button class="pcm-close" onclick="closePcModal()" title="Fermer (Échap)">✕</button>
+    </div>
+
+    <!-- Navigation par classe -->
+    <div id="pcModalClassNav">
+      <button class="pcm-cls-btn active" onclick="filterPcClass('all',this)">
+        <span class="pcm-cls-num">★</span>
+        <span class="pcm-cls-label">Toutes</span>
+      </button>
+    </div>
+
+    <!-- Corps — grille 3D -->
+    <div id="pcModalBody"></div>
+
+    <!-- Pied -->
+    <div id="pcModalFooter">
+      <span class="pcm-kbd"><kbd>↑↓</kbd> Naviguer</span>
+      <span class="pcm-kbd"><kbd>Entrée</kbd> Sélectionner</span>
+      <span class="pcm-kbd"><kbd>Échap</kbd> Fermer</span>
+      <span style="margin-left:auto" id="pcModalCount"></span>
+    </div>
+
+  </div>
+</div>
+
 <script type="module" src="as.js"></script>
 </body>
 </html>
