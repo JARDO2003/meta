@@ -2124,6 +2124,13 @@ let ecritures = [],
   currentProfile = null,
   isAILoading = false;  // Gardé pour compatibilité
 
+// ── Données des modules (déclarations globales manquantes) ──
+let salaries = [];
+let stocks = [];
+let centresAnalytiques = [];
+let imputations = [];
+let societes = [];
+
 // ══════════════════════════════════════════
 // OPÉRATIONS PARALLÈLES — Saisie + IA simultanées
 // ══════════════════════════════════════════
@@ -9050,7 +9057,32 @@ function renderStocks() {
   }</tbody></table></div>`;
 }
 
-function exportInventairePDF() { toast('Export inventaire PDF — Module en cours', 'info'); }
+function exportInventairePDF() {
+  try {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit:'mm', format:'a4' });
+    const company = currentProfile?.company || 'Entreprise';
+    doc.setFontSize(14); doc.setFont('helvetica','bold');
+    doc.text('INVENTAIRE DES STOCKS — ' + company, 14, 18);
+    doc.setFontSize(9); doc.setFont('helvetica','normal');
+    doc.text('Édité le ' + new Date().toLocaleDateString('fr-FR'), 14, 25);
+    const rows = (stocks||[]).map(s => [
+      s.article||'—', s.type||'—',
+      String(s.quantite||0), fnPDF(s.prixUnitaire||0),
+      fnPDF((s.quantite||0)*(s.prixUnitaire||0))
+    ]);
+    const totalVal = (stocks||[]).reduce((t,s)=>t+(s.quantite||0)*(s.prixUnitaire||0),0);
+    if (rows.length) rows.push(['','','','TOTAL', fnPDF(totalVal) + ' FCFA']);
+    doc.autoTable({
+      head:[['Article','Type','Qté','P.U. HT','Valeur HT']],
+      body: rows.length ? rows : [['Aucun stock enregistré','','','','']],
+      startY:30, styles:{fontSize:9},
+      headStyles:{fillColor:[30,30,40],textColor:[212,168,83]}
+    });
+    doc.save('inventaire_' + company.replace(/\s/g,'_') + '.pdf');
+    toast('✅ Inventaire exporté en PDF', 'success');
+  } catch(e) { toast('Erreur export PDF: ' + e.message, 'error'); }
+}
 window.openStockModal = openStockModal;
 window.saveStock = saveStock;
 window.renderStocks = renderStocks;
@@ -9099,7 +9131,30 @@ function renderRapprochement() {
 }
 
 function toggleRappr(i) { if (lignesReleve[i]) { lignesReleve[i].rapproche = !lignesReleve[i].rapproche; renderRapprochement(); } }
-function exportRapprochementPDF() { toast('Export état rapprochement PDF — Module en cours', 'info'); }
+function exportRapprochementPDF() {
+  try {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit:'mm', format:'a4' });
+    const company = currentProfile?.company || 'Entreprise';
+    doc.setFontSize(14); doc.setFont('helvetica','bold');
+    doc.text('ÉTAT DE RAPPROCHEMENT BANCAIRE — ' + company, 14, 18);
+    doc.setFontSize(9); doc.setFont('helvetica','normal');
+    doc.text('Édité le ' + new Date().toLocaleDateString('fr-FR'), 14, 25);
+    const map = getMap();
+    const soldeBanque521 = Object.entries(map).filter(([c])=>c.startsWith('521')).reduce((s,[,a])=>s+(a.debit-a.credit),0);
+    doc.autoTable({
+      body:[
+        ['Solde comptable (521)', fnPDF(soldeBanque521) + ' FCFA'],
+        ['Solde relevé bancaire', 'À renseigner'],
+        ['Écart', '—'],
+      ],
+      startY:30, styles:{fontSize:10},
+      columnStyles:{0:{fontStyle:'bold', cellWidth:110}}
+    });
+    doc.save('rapprochement_bancaire_' + company.replace(/\s/g,'_') + '.pdf');
+    toast('✅ État de rapprochement exporté', 'success');
+  } catch(e) { toast('Erreur export PDF: ' + e.message, 'error'); }
+}
 window.importReleveBancaire = importReleveBancaire;
 window.toggleRappr = toggleRappr;
 window.exportRapprochementPDF = exportRapprochementPDF;
@@ -9164,7 +9219,31 @@ function renderBudgets() {
   el.innerHTML = `<div style="padding:4px">${rows}</div>`;
 }
 
-function exportBudgetPDF() { toast('Export budget PDF — Module en cours', 'info'); }
+function exportBudgetPDF() {
+  try {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit:'mm', format:'a4' });
+    const company = currentProfile?.company || 'Entreprise';
+    doc.setFontSize(14); doc.setFont('helvetica','bold');
+    doc.text('BUDGETS & PRÉVISIONS — ' + company, 14, 18);
+    doc.setFontSize(9); doc.setFont('helvetica','normal');
+    doc.text('Exercice ' + (currentProfile?.exercice||'2024') + ' — Édité le ' + new Date().toLocaleDateString('fr-FR'), 14, 25);
+    const map = getMap();
+    const rows = (budgets||[]).map(b => {
+      const realise = Object.entries(map).filter(([c])=>c.startsWith(String(b.compte))).reduce((s,[,a])=>s+Math.abs(a.debit-a.credit),0);
+      const taux = b.montant > 0 ? Math.round(realise/b.montant*100) : 0;
+      return [b.compte||'—', PC[b.compte]||b.compte||'—', fnPDF(b.montant||0), fnPDF(realise), taux+'%', b.periode||'Annuel'];
+    });
+    doc.autoTable({
+      head:[['Compte','Libellé','Prévu (FCFA)','Réalisé (FCFA)','Taux','Période']],
+      body: rows.length ? rows : [['Aucun budget saisi','','','','','']],
+      startY:30, styles:{fontSize:8},
+      headStyles:{fillColor:[30,30,40],textColor:[212,168,83]}
+    });
+    doc.save('budgets_' + company.replace(/\s/g,'_') + '.pdf');
+    toast('✅ Budget exporté en PDF', 'success');
+  } catch(e) { toast('Erreur export PDF: ' + e.message, 'error'); }
+}
 window.openBudgetModal = openBudgetModal;
 window.saveBudget = saveBudget;
 window.renderBudgets = renderBudgets;
@@ -9236,7 +9315,37 @@ function renderLettrage() {
 }
 
 function lancerLettrage() { toast('Lettrage automatique — les mouvements équilibrés ont été marqués.', 'success'); renderLettrage(); }
-function exportBalanceAgeePDF() { toast('Export balance âgée PDF — Module en cours', 'info'); }
+function exportBalanceAgeePDF() {
+  try {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const company = currentProfile?.company || 'Entreprise';
+    const today = new Date().toLocaleDateString('fr-FR');
+    doc.setFontSize(14); doc.setFont('helvetica','bold');
+    doc.text('BALANCE ÂGÉE — ' + company, 14, 18);
+    doc.setFontSize(9); doc.setFont('helvetica','normal');
+    doc.text('Édité le ' + today, 14, 25);
+    const map = getMap();
+    const headers = [['Tiers','< 30J','30-60J','60-90J','> 90J','TOTAL']];
+    const rows401 = [], rows411 = [];
+    Object.entries(map).forEach(([code, acc]) => {
+      if (!code.startsWith('401') && !code.startsWith('411')) return;
+      const s = acc.debit - acc.credit;
+      if (Math.abs(s) < 1) return;
+      const row = [PC[code] || code, fnPDF(Math.abs(s)), '0','0','0', fnPDF(Math.abs(s))];
+      if (code.startsWith('411')) rows411.push(row);
+      else rows401.push(row);
+    });
+    doc.setFontSize(11); doc.setFont('helvetica','bold');
+    doc.text('CLIENTS (411)', 14, 35);
+    doc.autoTable({ head: headers, body: rows411.length ? rows411 : [['Aucune créance','','','','','']], startY: 38, styles: {fontSize:8}, headStyles:{fillColor:[30,30,40],textColor:[212,168,83]} });
+    const y2 = doc.lastAutoTable.finalY + 8;
+    doc.setFont('helvetica','bold'); doc.text('FOURNISSEURS (401)', 14, y2);
+    doc.autoTable({ head: headers, body: rows401.length ? rows401 : [['Aucune dette','','','','','']], startY: y2+3, styles: {fontSize:8}, headStyles:{fillColor:[30,30,40],textColor:[212,168,83]} });
+    doc.save('balance_agee_' + company.replace(/\s/g,'_') + '.pdf');
+    toast('✅ Balance âgée exportée en PDF', 'success');
+  } catch(e) { toast('Erreur export PDF: ' + e.message, 'error'); }
+}
 window.afficherLettrage = afficherLettrage;
 window.lancerLettrage = lancerLettrage;
 window.exportBalanceAgeePDF = exportBalanceAgeePDF;
@@ -9312,7 +9421,45 @@ function renderDeclaration() {
   el.innerHTML = html || '<div class="empty-state"><div class="icon">📑</div><p>Sélectionnez une déclaration.</p></div>';
 }
 
-function exportDeclarationPDF() { toast('Export déclaration PDF — Module en cours', 'info'); }
+function exportDeclarationPDF() {
+  try {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit:'mm', format:'a4' });
+    const company = currentProfile?.company || 'Entreprise';
+    const today = new Date().toLocaleDateString('fr-FR');
+    const map = getMap();
+    doc.setFontSize(14); doc.setFont('helvetica','bold');
+    doc.text('DÉCLARATION FISCALE — ' + company, 14, 18);
+    doc.setFontSize(9); doc.setFont('helvetica','normal');
+    doc.text('Période : Exercice ' + (currentProfile?.exercice||'2024') + ' — Édité le ' + today, 14, 25);
+    // TVA
+    const tvaCollectee = Object.entries(map).filter(([c])=>c.startsWith('443')).reduce((s,[,a])=>s+a.credit,0);
+    const tvaDeductible = Object.entries(map).filter(([c])=>c.startsWith('445')).reduce((s,[,a])=>s+a.debit,0);
+    const tvaNette = tvaCollectee - tvaDeductible;
+    // IS
+    const produits = Object.entries(map).filter(([c])=>c[0]==='7').reduce((s,[,a])=>s+a.credit-a.debit,0);
+    const charges = Object.entries(map).filter(([c])=>c[0]==='6').reduce((s,[,a])=>s+a.debit-a.credit,0);
+    const benefice = produits - charges;
+    const is = benefice > 0 ? Math.round(benefice * 0.25) : 0;
+    const ca = Object.entries(map).filter(([c])=>c.startsWith('70')).reduce((s,[,a])=>s+a.credit,0);
+    const imf = Math.max(3000000, Math.round(ca * 0.005));
+    const rows = [
+      ['TVA collectée (443x)', fnPDF(tvaCollectee) + ' FCFA'],
+      ['TVA déductible (445x)', fnPDF(tvaDeductible) + ' FCFA'],
+      ['TVA NETTE À PAYER (444)', fnPDF(Math.max(0,tvaNette)) + ' FCFA'],
+      ['',''],
+      ['Chiffre d'affaires HT (70x)', fnPDF(ca) + ' FCFA'],
+      ['Charges totales (6x)', fnPDF(charges) + ' FCFA'],
+      ['Bénéfice imposable', fnPDF(benefice) + ' FCFA'],
+      ['IS 25%', fnPDF(is) + ' FCFA'],
+      ['',''],
+      ['IMF (0,5% CA, min 3 000 000)', fnPDF(imf) + ' FCFA'],
+    ];
+    doc.autoTable({ body: rows, startY: 32, styles:{fontSize:10}, columnStyles:{0:{fontStyle:'bold',cellWidth:120},1:{halign:'right'}} });
+    doc.save('declaration_fiscale_' + company.replace(/\s/g,'_') + '.pdf');
+    toast('✅ Déclaration fiscale exportée', 'success');
+  } catch(e) { toast('Erreur export PDF: ' + e.message, 'error'); }
+}
 window.afficherDeclaration = afficherDeclaration;
 window.exportDeclarationPDF = exportDeclarationPDF;
 
@@ -11109,6 +11256,55 @@ async function logAudit(action, module, detail, user) {
   } catch(e) {
     console.error('Erreur audit:', e);
   }
+}
+
+
+// ══════════════════════════════════════════
+// FONCTIONS MANQUANTES — Stubs fonctionnels
+// ══════════════════════════════════════════
+
+function exportDeclFiscalePDF() { exportDeclarationPDF(); }
+
+function openDeclTaxeModal() { navigate('declarations'); toast('Sélectionnez le type de déclaration ci-dessous', 'info'); }
+
+function openNouveau3DCall() { 
+  const panel = document.getElementById('videoCallPanel');
+  if (panel) panel.style.display = 'block';
+  toast('Appel 3D — Fonctionnalité WebRTC en cours d\'activation', 'info'); 
+}
+
+function exportHistoriqueAppels() {
+  try {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit:'mm', format:'a4' });
+    const company = currentProfile?.company || 'Entreprise';
+    doc.setFontSize(14); doc.setFont('helvetica','bold');
+    doc.text('HISTORIQUE APPELS VIDÉO — ' + company, 14, 18);
+    doc.setFontSize(9); doc.text('Édité le ' + new Date().toLocaleDateString('fr-FR'), 14, 25);
+    doc.autoTable({ head:[['Date','Durée','Participants']], body:[['Aucun appel enregistré','','']],
+      startY:30, styles:{fontSize:9}, headStyles:{fillColor:[30,30,40],textColor:[212,168,83]} });
+    doc.save('historique_appels.pdf');
+    toast('Historique exporté', 'success');
+  } catch(e) { toast('Erreur: ' + e.message, 'error'); }
+}
+
+function confirmWavePaymentManual() {
+  const name = (document.getElementById('wavePayerName')?.value||'').trim();
+  const number = (document.getElementById('wavePayerNumber')?.value||'').trim();
+  const err = document.getElementById('paymentFormErr');
+  if (!name || !number) {
+    if (err) { err.textContent = 'Veuillez remplir votre nom et numéro Wave.'; err.classList.add('show'); }
+    return;
+  }
+  if (err) err.classList.remove('show');
+  window._fbSetDoc && window._fbSetDoc(window._fbDoc(window._db, 'profiles', currentProfile.id), {
+    paymentPendingAt: new Date().toISOString(),
+    subscriptionStatus: 'pending_payment',
+    wavePayerName: name,
+    wavePayerNumber: number,
+  }, { merge: true }).catch(()=>{});
+  document.getElementById('paywallPaymentForm').style.display = 'none';
+  document.getElementById('paywallSuccessPanel').style.display = 'block';
 }
 
 // ══════════════════════════════════════════
