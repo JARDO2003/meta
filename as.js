@@ -97,7 +97,7 @@ document.dispatchEvent(new Event('firebase-ready'));
 // Les clés API Groq, Mistral et l'ordre des modèles sont gérés via server.html
 // JAMAIS de clé API en dur dans ce fichier
 // ══════════════════════════════════════════
-let GROQ_API_KEYS = [];    // Chargées depuis server_config/groq_keys (ou CC.html)
+let GROQ_API_KEYS = ['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'];    // Clé API Groq directe
 let GROQ_MODELS = [];      // Chargées depuis server_config/models
 let groqKeyIdx = 0;        // Index rotation clés Groq
 let groqModelIdx = 0;      // Index rotation modèles Groq
@@ -113,18 +113,17 @@ const AI_CACHE_MAX = 500;        // maximum d'entrées en mémoire
 
 async function loadServerConfig() {
   try {
-    const [keysSnap, modelsSnap] = await Promise.all([
-      getDoc(doc(db, 'server_config', 'groq_keys')),
-      getDoc(doc(db, 'server_config', 'models')),
-    ]);
-
-    if (keysSnap.exists()) {
-      const rawKeys = keysSnap.data().keys || [];
-      GROQ_API_KEYS = rawKeys.map((k) => k.value).filter(Boolean);
-    }
-
-    if (modelsSnap.exists()) {
-      GROQ_MODELS = modelsSnap.data().list || [];
+    // Clés API chargées directement du code
+    groqKeyBusy = new Array(GROQ_API_KEYS.length).fill(false);
+    
+    // Charger seulement les modèles de Firestore
+    try {
+      const modelsSnap = await getDoc(doc(db, 'server_config', 'models'));
+      if (modelsSnap.exists()) {
+        GROQ_MODELS = modelsSnap.data().list || [];
+      }
+    } catch (e) {
+      console.warn('[COMEO] Erreur chargement modèles depuis Firestore :', e.message);
     }
 
     // Valeurs par défaut si Firestore vide
@@ -132,11 +131,10 @@ async function loadServerConfig() {
       GROQ_MODELS = ['llama-3.3-70b-versatile', 'qwen/qwen3-32b', 'meta-llama/llama-4-scout-17b-16e-instruct'];
     }
 
-    groqKeyBusy = new Array(GROQ_API_KEYS.length).fill(false);
     serverConfigLoaded = true;
     aiServiceAvailable = GROQ_API_KEYS.length > 0;
     updateServiceAvailabilityUI();
-    console.log(`[COMEO] Config chargée — ${GROQ_API_KEYS.length} clé(s) Groq, ${GROQ_MODELS.length} modèle(s)`);
+    console.log(`[COMEO] Config chargée — ${GROQ_API_KEYS.length} clé(s) Groq (directe), ${GROQ_MODELS.length} modèle(s)`);
   } catch (e) {
     console.warn('[COMEO] Erreur chargement config serveur :', e.message);
     aiServiceAvailable = false;
