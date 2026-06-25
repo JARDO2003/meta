@@ -11021,8 +11021,8 @@ async function loadDeclFiscales() {
 // ════════════════════════════════════════════════════════════════════════════════
 // ✅ MODULE APPELS VIDÉO 3D INNOVANT — WebRTC + Three.js
 // ════════════════════════════════════════════════════════════════════════════════
-let videoCallActive = false, peerConnection = null, videoAppels = [];
-// Note: localStream is declared earlier in the file
+let videoCallActive = false, videoAppels = [];
+// Note: localStream and peerConnection are declared earlier in the file
 
 async function loadAppelsVideo() {
   try {
