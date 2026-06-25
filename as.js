@@ -381,11 +381,17 @@ async function callGroqQueued(messages, systemPrompt, maxTokens = 6000, temperat
       const model = 'gemini-1.5-flash'; // Modèle Gemini
       const keyShort = 'clé ' + (keyIdx + 1) + '/' + GROQ_API_KEYS.length;
       try {
-        // Format pour Gemini API
-        const contents = messages.map(msg => ({
-          role: msg.role === 'assistant' ? 'model' : 'user',
-          parts: [{ text: msg.content }]
-        }));
+        // Format pour Gemini API - inclure le system prompt comme premier message
+        const contents = [
+          {
+            role: 'user',
+            parts: [{ text: systemPrompt }]
+          },
+          ...messages.map(msg => ({
+            role: msg.role === 'assistant' ? 'model' : 'user',
+            parts: [{ text: msg.content }]
+          }))
+        ];
 
         const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${GROQ_API_KEYS[keyIdx]}`, {
           method: 'POST',
@@ -394,7 +400,6 @@ async function callGroqQueued(messages, systemPrompt, maxTokens = 6000, temperat
           },
           body: JSON.stringify({
             contents,
-            systemInstruction: { parts: [{ text: systemPrompt }] },
             generationConfig: {
               temperature,
               topP: 0.95,
