@@ -1735,3 +1735,147 @@ body { font-family:var(--font-body); background:var(--paper); color:var(--ink); 
 }
 .robot-text-send:hover { background:rgba(212,168,83,.25); transform:scale(1.07); }
 .robot-text-send svg { width:15px; height:15px; fill:currentColor; }
+/* ══════════════════════════════════════════
+   MODAL PLAN COMPTABLE — Grande vue 3D
+   ══════════════════════════════════════════ */
+#pcModalOverlay {
+  position:fixed; inset:0; z-index:9000;
+  background:rgba(5,6,12,.82);
+  backdrop-filter:blur(12px) saturate(1.4);
+  display:none; align-items:flex-start; justify-content:center;
+  padding:20px 16px 16px;
+  overflow:hidden;
+}
+#pcModalOverlay.open { display:flex; animation:pcOverlayIn .2s ease; }
+@keyframes pcOverlayIn { from{opacity:0} to{opacity:1} }
+
+#pcModal {
+  width:100%; max-width:1180px; height:calc(100vh - 40px);
+  background:var(--surface); border:1px solid rgba(212,168,83,.2);
+  border-radius:18px; display:flex; flex-direction:column; overflow:hidden;
+  box-shadow:0 0 0 1px rgba(212,168,83,.08),0 40px 80px rgba(0,0,0,.55),0 0 120px rgba(212,168,83,.06);
+  animation:pcModalIn .25s cubic-bezier(.34,1.2,.64,1);
+}
+@keyframes pcModalIn { from{opacity:0;transform:scale(.96) translateY(16px)} to{opacity:1;transform:none} }
+
+#pcModalHeader {
+  display:flex; align-items:center; gap:14px; padding:18px 24px 14px;
+  border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,var(--ink) 0%,var(--surface) 100%);
+  flex-shrink:0;
+}
+.pcm-title { font-family:var(--font-display); font-size:20px; font-weight:700; color:var(--warm); letter-spacing:-.01em; white-space:nowrap; }
+.pcm-subtitle { font-size:11px; color:var(--muted); font-family:var(--font-mono); margin-top:2px; letter-spacing:.06em; }
+#pcModalSearch {
+  flex:1; background:var(--surface2); border:1.5px solid var(--line);
+  border-radius:40px; padding:9px 18px; font-size:13px;
+  color:var(--ink); font-family:var(--font-body); outline:none;
+  transition:border-color .18s, box-shadow .18s;
+}
+#pcModalSearch:focus { border-color:var(--warm); box-shadow:0 0 0 3px rgba(212,168,83,.12); }
+#pcModalSearch::placeholder { color:var(--muted); }
+.pcm-close {
+  width:36px; height:36px; border-radius:50%; border:1px solid var(--line);
+  background:var(--surface2); color:var(--muted); cursor:pointer;
+  display:flex; align-items:center; justify-content:center; font-size:18px;
+  transition:all .16s; flex-shrink:0;
+}
+.pcm-close:hover { background:rgba(220,38,38,.12); color:#ef4444; border-color:#ef4444; }
+
+#pcModalClassNav {
+  display:flex; gap:8px; padding:10px 24px; background:var(--surface2);
+  border-bottom:1px solid var(--line); overflow-x:auto; flex-shrink:0;
+  scrollbar-width:none;
+}
+#pcModalClassNav::-webkit-scrollbar { display:none; }
+.pcm-cls-btn {
+  display:flex; align-items:center; gap:7px; padding:6px 14px;
+  border-radius:30px; border:1px solid var(--line);
+  background:var(--surface); color:var(--slate);
+  cursor:pointer; font-size:11.5px; white-space:nowrap; transition:all .15s; flex-shrink:0;
+}
+.pcm-cls-btn:hover { border-color:var(--warm); color:var(--warm); background:var(--warm-dim); }
+.pcm-cls-btn.active { background:var(--warm); color:var(--ink); border-color:var(--warm); font-weight:700; }
+.pcm-cls-num { font-family:var(--font-display); font-weight:700; font-size:14px; }
+.pcm-cls-label { font-family:var(--font-mono); font-size:10px; letter-spacing:.05em; text-transform:uppercase; }
+.pcm-count-badge { background:rgba(0,0,0,.18); border-radius:20px; padding:1px 6px; font-size:9px; font-weight:700; }
+
+#pcModalBody {
+  flex:1; overflow-y:auto; padding:20px 24px;
+  display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:16px;
+  align-content:start;
+  scrollbar-width:thin; scrollbar-color:var(--warm) var(--surface2);
+}
+#pcModalBody::-webkit-scrollbar { width:8px; }
+#pcModalBody::-webkit-scrollbar-track { background:var(--surface2); }
+#pcModalBody::-webkit-scrollbar-thumb { background:var(--warm); border-radius:6px; }
+#pcModalBody.list-mode { grid-template-columns:1fr; padding:12px 24px; }
+
+.pcm-card {
+  background:var(--surface); border:1px solid var(--line); border-radius:14px; overflow:hidden;
+  box-shadow:0 2px 4px rgba(0,0,0,.04),0 8px 20px rgba(0,0,0,.07),0 20px 40px -12px rgba(212,168,83,.14);
+  transition:transform .2s ease, box-shadow .2s ease; transform-style:preserve-3d;
+}
+.pcm-card:hover {
+  transform:translateY(-4px) rotateX(1deg);
+  box-shadow:0 6px 16px rgba(0,0,0,.1),0 28px 48px rgba(0,0,0,.12),0 32px 64px -10px rgba(212,168,83,.28);
+}
+.pcm-card-head {
+  padding:13px 16px; display:flex; align-items:center; gap:12px;
+  background:linear-gradient(135deg, var(--ink) 0%, #1a1d2e 100%);
+  border-bottom:1px solid rgba(212,168,83,.15);
+  position:relative; overflow:hidden;
+}
+.pcm-card-head::before {
+  content:''; position:absolute; right:-20px; top:-20px;
+  width:80px; height:80px; border-radius:50%;
+  background:radial-gradient(circle, rgba(212,168,83,.12) 0%, transparent 70%);
+}
+.pcm-card-big-num { font-family:var(--font-display); font-size:36px; font-weight:900; color:var(--warm); line-height:1; min-width:38px; text-align:center; text-shadow:0 2px 12px rgba(212,168,83,.3); }
+.pcm-card-info { flex:1; min-width:0; }
+.pcm-card-name { font-size:13px; font-weight:700; color:#fff; margin:0 0 2px; }
+.pcm-card-nature { display:inline-block; font-size:9px; padding:2px 8px; border-radius:20px; background:rgba(212,168,83,.15); color:var(--warm); font-family:var(--font-mono); font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
+.pcm-card-nb { font-size:10px; color:rgba(255,255,255,.3); font-family:var(--font-mono); margin-top:3px; }
+
+.pcm-card-rows { max-height:340px; overflow-y:auto; scrollbar-width:thin; scrollbar-color:var(--warm) var(--surface2); }
+.pcm-card-rows::-webkit-scrollbar { width:5px; }
+.pcm-card-rows::-webkit-scrollbar-thumb { background:var(--warm); border-radius:4px; }
+.pcm-row {
+  display:flex; align-items:center; gap:10px;
+  padding:8px 14px; border-bottom:1px solid rgba(255,255,255,.04);
+  cursor:pointer; transition:background .13s, transform .1s; position:relative;
+}
+.pcm-row:last-child { border-bottom:none; }
+.pcm-row:hover { background:rgba(212,168,83,.07); transform:translateX(3px); }
+.pcm-row:hover .pcm-row-pick { opacity:1; }
+.pcm-row-code { font-family:var(--font-mono); font-size:11px; font-weight:700; color:var(--warm); min-width:52px; flex-shrink:0; letter-spacing:.03em; }
+.pcm-row-lib { font-size:11.5px; color:var(--slate); flex:1; min-width:0; line-height:1.3; }
+.pcm-row-pick { opacity:0; transition:opacity .13s; font-size:10px; color:var(--warm); font-weight:700; font-family:var(--font-mono); white-space:nowrap; }
+.pcm-row-depth-2 { padding-left:28px; }
+.pcm-row-depth-3 { padding-left:42px; }
+.pcm-row-depth-4plus { padding-left:56px; }
+
+.pcm-search-result {
+  display:flex; align-items:center; gap:12px; padding:10px 16px;
+  border-radius:10px; border:1px solid var(--line);
+  background:var(--surface); cursor:pointer; transition:all .13s;
+}
+.pcm-search-result:hover { background:rgba(212,168,83,.07); border-color:var(--warm); transform:translateX(4px); }
+.pcm-sr-code { font-family:var(--font-mono); font-weight:700; color:var(--warm); font-size:13px; min-width:60px; }
+.pcm-sr-lib { flex:1; font-size:13px; color:var(--slate); }
+.pcm-sr-class { font-size:9px; font-family:var(--font-mono); color:var(--muted); background:var(--surface2); padding:2px 8px; border-radius:20px; white-space:nowrap; }
+mark.hl { background:rgba(212,168,83,.3); color:var(--warm); border-radius:2px; padding:0 2px; }
+
+#pcModalFooter {
+  display:flex; align-items:center; gap:18px; padding:10px 24px;
+  border-top:1px solid var(--line); background:var(--surface2);
+  font-size:10px; color:var(--muted); font-family:var(--font-mono); flex-shrink:0;
+}
+.pcm-kbd { display:inline-flex; align-items:center; gap:5px; }
+.pcm-kbd kbd { background:var(--surface3); border:1px solid var(--line); border-radius:4px; padding:2px 7px; font-family:var(--font-mono); font-size:9px; color:var(--slate); }
+
+@media (max-width:768px) {
+  #pcModal { border-radius:14px; }
+  #pcModalBody { grid-template-columns:1fr; padding:12px; }
+  .pcm-card-big-num { font-size:28px; }
+}
