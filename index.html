@@ -1012,6 +1012,37 @@
           <div class="empty-state" style="padding:10px"><div class="icon" style="font-size:24px">🔄</div><p style="font-size:13px">Cliquez sur "Vérifier" pour commencer la procédure de clôture.</p></div>
         </div>
       </div>
+
+      <!-- ── Section import Saari / Sage ── -->
+      <div class="card" style="padding:28px;margin-top:20px">
+        <h3 style="font-family:var(--font-display);font-size:18px;margin-bottom:6px;color:var(--ink)">📥 Import depuis Saari / Sage</h3>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:20px">Importez vos données existantes au format CSV exporté depuis Saari ou Sage Ligne 100. Les écritures déséquilibrées sont automatiquement ignorées.</p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">
+          <div class="exercice-step" style="flex-direction:column;align-items:flex-start;gap:10px">
+            <div style="font-size:22px">📓</div>
+            <div><strong>Journal</strong><br><span style="font-size:11px;color:var(--muted)">Date;Journal;Pièce;Compte;Libellé;Débit;Crédit</span></div>
+            <button class="btn btn-ink" onclick="openImportModal('journal')" style="width:100%">Importer journal</button>
+          </div>
+          <div class="exercice-step" style="flex-direction:column;align-items:flex-start;gap:10px">
+            <div style="font-size:22px">👥</div>
+            <div><strong>Clients</strong><br><span style="font-size:11px;color:var(--muted)">Code;Nom;Adresse;Téléphone;Email;Compte</span></div>
+            <button class="btn btn-ink" onclick="openImportModal('clients')" style="width:100%">Importer clients</button>
+          </div>
+          <div class="exercice-step" style="flex-direction:column;align-items:flex-start;gap:10px">
+            <div style="font-size:22px">🏭</div>
+            <div><strong>Fournisseurs</strong><br><span style="font-size:11px;color:var(--muted)">Code;Nom;Adresse;Téléphone;Email;Compte</span></div>
+            <button class="btn btn-ink" onclick="openImportModal('fournisseurs')" style="width:100%">Importer fournisseurs</button>
+          </div>
+          <div class="exercice-step" style="flex-direction:column;align-items:flex-start;gap:10px">
+            <div style="font-size:22px">📋</div>
+            <div><strong>Plan comptable</strong><br><span style="font-size:11px;color:var(--muted)">Compte;Libellé — complète le plan SYSCOHADA</span></div>
+            <button class="btn btn-ink" onclick="openImportModal('plan_comptable')" style="width:100%">Importer plan comptable</button>
+          </div>
+        </div>
+        <div style="margin-top:14px;padding:10px 14px;background:var(--surface2);border-radius:var(--rs);font-size:12px;color:var(--muted)">
+          💡 Conseil : exportez depuis Saari via <em>Fichier → Exporter → Journal (CSV séparateur point-virgule, UTF-8)</em>. Les écritures d'exercices antérieurs importées dans une période déjà clôturée seront marquées en lecture seule.
+        </div>
+      </div>
     </div>
 
 
@@ -1644,6 +1675,21 @@
     </div>
 
     <div class="robot-hint" id="robotHint">Maintenez le micro pour parler</div>
+
+    <!-- ── Saisie texte — alternative au micro ── -->
+    <div class="robot-text-row" id="robotTextRow">
+      <input
+        class="robot-text-input"
+        id="robotTextInput"
+        type="text"
+        placeholder="Tapez votre question ici…"
+        maxlength="400"
+        onkeydown="if(event.key==='Enter')sendRobotText()"
+      >
+      <button class="robot-text-send" onclick="sendRobotText()" title="Envoyer">
+        <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg>
+      </button>
+    </div>
   </div>
 
   <div class="robot-stats-bar">
