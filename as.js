@@ -368,7 +368,7 @@ function releaseGroqKey(idx) {
  */
 async function callGroqQueued(messages, systemPrompt, maxTokens = 6000, temperature = 0.02) {
   if (GROQ_API_KEYS.length === 0) {
-    return { error: 'no_keys', msg: '⚠️ Aucune clé API Groq configurée. Rendez-vous dans le Centre de Contrôle (CC.html) pour en ajouter.' };
+    return { error: 'no_keys', msg: '⚠️ Aucune clé API Groq configurée dans le système.' };
   }
 
   const triedKeys = new Set();
@@ -423,7 +423,7 @@ async function callGroqQueued(messages, systemPrompt, maxTokens = 6000, temperat
           }
           if (!found) {
             const detail = keyErrors.map(e => `clé ${e.keyNum} : ${e.detail}`).join(' · ');
-            return { error: 'all_rate_limited', msg: `⚠️ Toutes les clés Groq sont saturées (quota dépassé).\n${detail}\n\nAjoutez d'autres clés dans CC.html ou réessayez dans quelques secondes.` };
+            return { error: 'all_rate_limited', msg: `⚠️ Toutes les clés Groq sont saturées (quota dépassé).\n${detail}\n\nRéessayez dans quelques secondes.` };
           }
           continue;
         }
@@ -443,7 +443,7 @@ async function callGroqQueued(messages, systemPrompt, maxTokens = 6000, temperat
           }
           if (!found) {
             const detail = keyErrors.map(e => `clé ${e.keyNum} : ${e.detail}`).join(' · ');
-            return { error: 'invalid_keys', msg: `🔑 Problème avec vos clés API Groq.\n${detail}\n\nVérifiez et mettez à jour vos clés dans CC.html.` };
+            return { error: 'invalid_keys', msg: `🔑 Problème avec vos clés API Groq.\n${detail}\n\nVérifiez vos clés dans le système.` };
           }
           continue;
         }
@@ -451,7 +451,7 @@ async function callGroqQueued(messages, systemPrompt, maxTokens = 6000, temperat
         // Autre erreur HTTP inattendue
         keyErrors.push({ keyNum: keyIdx + 1, code: status, detail: apiMsg || `Erreur HTTP ${status}` });
         console.warn(`[COMEO Queue] ${keyShort} — erreur ${status} : ${apiMsg}`);
-        return { error: 'api_error', msg: `❌ Erreur API Groq (${status})${apiMsg ? ' : ' + apiMsg : ''}.\nSi le problème persiste, vérifiez vos clés dans CC.html.` };
+        return { error: 'api_error', msg: `❌ Erreur API Groq (${status})${apiMsg ? ' : ' + apiMsg : ''}.\n.` };
 
       } catch (e) {
         // Erreur réseau (pas de connexion internet, timeout…)
@@ -4415,7 +4415,7 @@ const sendToAI = async function(context) {
   if (!requireSubscriptionAccess()) return;
 
   if (!isAiServiceReady()) {
-    appendMsg(context, 'ai', '⚠️ Aucune clé API Groq configurée. Ajoutez vos clés dans CC.html pour activer l\'assistant IA.');
+    appendMsg(context, 'ai', '⚠️ Aucune clé API Groq configurée. Clés configurées dans le système pour activer l\'assistant IA.');
     return;
   }
 
@@ -4490,8 +4490,8 @@ const sendToAI = async function(context) {
     // ══ AUCUN PROVIDER DISPONIBLE ══
     if (!data) {
       const noKeyMsg = GROQ_API_KEYS.length === 0
-        ? '⚠️ Aucune clé API Groq configurée. Ajoutez vos clés dans CC.html pour activer l\'IA.'
-        : '⚠️ Toutes les clés Groq sont indisponibles. Vérifiez vos clés dans CC.html.';
+        ? '⚠️ Aucune clé API Groq configurée. Clés configurées dans le système pour activer l\'IA.'
+        : '⚠️ Toutes les clés Groq sont indisponibles. Vérifiez vos clés dans le système.';
       removeTyping(context, tid);
       conversationHistory.pop();
       appendMsg(context, 'ai', noKeyMsg);
@@ -4599,8 +4599,8 @@ const sendToAI = async function(context) {
     updateServiceAvailabilityUI();
     const errMsg = err?.groqMsg || (
       GROQ_API_KEYS.length === 0
-        ? '⚠️ Aucune clé API Groq configurée. Ajoutez vos clés dans CC.html pour activer l\'assistant IA.'
-        : `❌ Erreur inattendue : ${err?.message || 'inconnue'}. Vérifiez vos clés dans CC.html.`
+        ? '⚠️ Aucune clé API Groq configurée. Clés configurées dans le système pour activer l\'assistant IA.'
+        : `❌ Erreur inattendue : ${err?.message || 'inconnue'}. Vérifiez vos clés dans le système.`
     );
     appendMsg(context, 'ai', errMsg);
   }
@@ -6321,7 +6321,7 @@ async function handleRobotQuery(query) {
   setRobotBubble('<span class="robot-thinking">…</span>');
 
   if (!isAiServiceReady()) {
-    const msg = '⚠️ Aucune clé API Groq configurée. Ajoutez vos clés dans CC.html.';
+    const msg = '⚠️ Aucune clé API Groq configurée. Clés configurées dans le système.';
     robotSpeak(msg, { skipBubble: true });
     setRobotBubble('<span class="service-msg-inline">' + msg + '</span>');
     setRobotStatus('online');
@@ -6765,8 +6765,8 @@ ANALYSE AUTOMATIQUE :
     aiServiceAvailable = false;
     updateServiceAvailabilityUI();
     const errMsg = GROQ_API_KEYS.length === 0
-      ? '⚠️ Aucune clé API configurée. Ajoutez vos clés dans CC.html.'
-      : `❌ Erreur : ${err?.message || 'inconnue'}. Vérifiez vos clés dans CC.html.`;
+      ? '⚠️ Aucune clé API configurée. Clés configurées dans le système.'
+      : `❌ Erreur : ${err?.message || 'inconnue'}. Vérifiez vos clés dans le système.`;
     robotSpeak(errMsg, { skipBubble: true });
     setRobotBubble('<span class="service-msg-inline">' + errMsg + '</span>');
   } finally {
