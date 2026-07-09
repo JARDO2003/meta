@@ -98,9 +98,11 @@ document.dispatchEvent(new Event('firebase-ready'));
 // JAMAIS de clé API en dur dans ce fichier
 // ══════════════════════════════════════════
 // ── Clés API multiples (OpenRouter + Gemini fallback) ──
-let OPENROUTER_KEYS = ['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'];
-let GEMINI_KEYS = ['AQ.Ab8RN6LRPDzoKC3Y9_iM5VM1uuFTHdya_sS3k699IrMu2BeFHg'];
-let GROQ_API_KEYS = ['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'];    // Alias pour compatibilité
+// Ne JAMAIS mettre de clé en dur ici : elles sont chargées depuis Firestore
+// (collection server_config, documents "groq_keys" et "gemini_keys") par loadServerConfig().
+let OPENROUTER_KEYS = [];
+let GEMINI_KEYS = [];
+let GROQ_API_KEYS = [];    // Alias pour compatibilité
 let GROQ_MODELS = [];      // Chargées depuis server_config/models
 let groqKeyIdx = 0;        // Index rotation clés OpenRouter
 let groqModelIdx = 0;      // Index rotation modèles Groq
@@ -116,10 +118,32 @@ const AI_CACHE_MAX = 500;        // maximum d'entrées en mémoire
 
 async function loadServerConfig() {
   try {
-    // Clés API chargées directement du code
+    // Charger les clés Groq/OpenRouter depuis Firestore (server_config/groq_keys)
+    try {
+      const groqKeysSnap = await getDoc(doc(db, 'server_config', 'groq_keys'));
+      if (groqKeysSnap.exists()) {
+        const entries = groqKeysSnap.data().keys || [];
+        GROQ_API_KEYS = entries.map(e => (typeof e === 'string' ? e : e.value)).filter(Boolean);
+        OPENROUTER_KEYS = GROQ_API_KEYS;
+      }
+    } catch (e) {
+      console.warn('[COMEO] Erreur chargement clés Groq depuis Firestore :', e.message);
+    }
+
+    // Charger les clés Gemini depuis Firestore (server_config/gemini_keys)
+    try {
+      const geminiKeysSnap = await getDoc(doc(db, 'server_config', 'gemini_keys'));
+      if (geminiKeysSnap.exists()) {
+        const entries = geminiKeysSnap.data().keys || [];
+        GEMINI_KEYS = entries.map(e => (typeof e === 'string' ? e : e.value)).filter(Boolean);
+      }
+    } catch (e) {
+      console.warn('[COMEO] Erreur chargement clés Gemini depuis Firestore :', e.message);
+    }
+
     groqKeyBusy = new Array(GROQ_API_KEYS.length).fill(false);
-    
-    // Charger seulement les modèles de Firestore
+
+    // Charger les modèles de Firestore
     try {
       const modelsSnap = await getDoc(doc(db, 'server_config', 'models'));
       if (modelsSnap.exists()) {
@@ -7841,23 +7865,10 @@ function updateExportOptions() {
 // ══════════════════════════════════════════
 
 // ══════════════════════════════════════════
-// CONFIGURATION SERVEUR — Clés API en dur (mode local / CC.html)
-// Généré le 23/06/2026 19:30:55
+// CONFIGURATION SERVEUR — Les clés API ne sont plus en dur ici.
+// Elles sont chargées depuis Firestore (server_config/groq_keys et
+// server_config/gemini_keys) par loadServerConfig(), déclarée plus haut (ligne ~113).
 // ══════════════════════════════════════════
-
-GROQ_API_KEYS = [
-    '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'
-  ];
-
-GROQ_MODELS = [
-    'auto'
-  ];
-
-// Initialiser le tableau d'occupation des clés
-groqKeyBusy = new Array(GROQ_API_KEYS.length).fill(false);
-
-
-// ── La fonction loadServerConfig() est déjà déclarée plus haut (ligne 113) ──
 
 // ══ API PUBLIQUE — Gestion des clés OpenRouter depuis CC.html ══
 /**
