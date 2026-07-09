@@ -1,0 +1,10 @@
+.env
+*.env
+*.env.*
+serviceAccountKey.json
+*.key
+*.pem
+/node_modules
+/dist
+
+# keep existing rules if any
