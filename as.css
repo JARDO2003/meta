@@ -1314,13 +1314,13 @@ body { font-family:var(--font-body); background:var(--paper); color:var(--ink); 
 .premium-price span { font-size:14px; font-weight:400; color:rgba(255,255,255,.5); }
 .premium-wave-btn {
   width:100%; padding:16px 20px; border:none; border-radius:14px;
-  background:linear-gradient(135deg,#1dc8ff,#00a0e9);
+  background:linear-gradient(135deg,#25d366,#128c7e);
   color:#fff; font-size:17px; font-weight:700; cursor:pointer;
   display:flex; align-items:center; justify-content:center; gap:10px;
-  box-shadow:0 8px 28px rgba(0,160,233,.35);
+  box-shadow:0 8px 28px rgba(37,211,102,.35);
 }
 .wave-icon {
-  width:28px; height:28px; border-radius:8px; background:#fff; color:#00a0e9;
+  width:28px; height:28px; border-radius:8px; background:#fff; color:#128c7e;
   font-weight:800; font-size:16px; display:flex; align-items:center; justify-content:center;
 }
 .premium-wave-hint { font-size:11px; color:rgba(255,255,255,.4); margin:12px 0 20px; }
