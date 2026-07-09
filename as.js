@@ -97,12 +97,13 @@ document.dispatchEvent(new Event('firebase-ready'));
 // Les clés API OpenRouter, Mistral et l'ordre des modèles sont gérés via server.html
 // JAMAIS de clé API en dur dans ce fichier
 // ══════════════════════════════════════════
-// ── Clés API multiples (OpenRouter + Gemini fallback) ──
+// ── Clés API multiples (OpenRouter + Groq direct + Gemini fallback) ──
 // Ne JAMAIS mettre de clé en dur ici : elles sont chargées depuis Firestore
-// (collection server_config, documents "groq_keys" et "gemini_keys") par loadServerConfig().
+// (collection server_config, documents "openrouter_keys", "groq_keys", "gemini_keys") par loadServerConfig().
 let OPENROUTER_KEYS = [];
 let GEMINI_KEYS = [];
-let GROQ_API_KEYS = [];    // Alias pour compatibilité
+let GROQ_API_KEYS = [];    // Clés OpenRouter (utilisées par callGroqQueued → openrouter.ai)
+let GROQ_DIRECT_KEYS = []; // Clés Groq natives (utilisées par callGroqDirect → api.groq.com)
 let GROQ_MODELS = [];      // Chargées depuis server_config/models
 let groqKeyIdx = 0;        // Index rotation clés OpenRouter
 let groqModelIdx = 0;      // Index rotation modèles Groq
@@ -118,13 +119,24 @@ const AI_CACHE_MAX = 500;        // maximum d'entrées en mémoire
 
 async function loadServerConfig() {
   try {
-    // Charger les clés Groq/OpenRouter depuis Firestore (server_config/groq_keys)
+    // Charger les clés OpenRouter depuis Firestore (server_config/openrouter_keys)
+    try {
+      const openrouterSnap = await getDoc(doc(db, 'server_config', 'openrouter_keys'));
+      if (openrouterSnap.exists()) {
+        const entries = openrouterSnap.data().keys || [];
+        OPENROUTER_KEYS = entries.map(e => (typeof e === 'string' ? e : e.value)).filter(Boolean);
+        GROQ_API_KEYS = OPENROUTER_KEYS; // GROQ_API_KEYS = clés utilisées par callGroqQueued (openrouter.ai)
+      }
+    } catch (e) {
+      console.warn('[COMEO] Erreur chargement clés OpenRouter depuis Firestore :', e.message);
+    }
+
+    // Charger les clés Groq natives depuis Firestore (server_config/groq_keys)
     try {
       const groqKeysSnap = await getDoc(doc(db, 'server_config', 'groq_keys'));
       if (groqKeysSnap.exists()) {
         const entries = groqKeysSnap.data().keys || [];
-        GROQ_API_KEYS = entries.map(e => (typeof e === 'string' ? e : e.value)).filter(Boolean);
-        OPENROUTER_KEYS = GROQ_API_KEYS;
+        GROQ_DIRECT_KEYS = entries.map(e => (typeof e === 'string' ? e : e.value)).filter(Boolean);
       }
     } catch (e) {
       console.warn('[COMEO] Erreur chargement clés Groq depuis Firestore :', e.message);
@@ -159,9 +171,9 @@ async function loadServerConfig() {
     }
 
     serverConfigLoaded = true;
-    aiServiceAvailable = GROQ_API_KEYS.length > 0;
+    aiServiceAvailable = GROQ_API_KEYS.length > 0 || GROQ_DIRECT_KEYS.length > 0 || GEMINI_KEYS.length > 0;
     updateServiceAvailabilityUI();
-    console.log(`[COMEO] Config chargée — ${GROQ_API_KEYS.length} clé(s) Groq (directe), ${GROQ_MODELS.length} modèle(s)`);
+    console.log(`[COMEO] Config chargée — ${GROQ_API_KEYS.length} clé(s) OpenRouter, ${GROQ_DIRECT_KEYS.length} clé(s) Groq direct, ${GEMINI_KEYS.length} clé(s) Gemini, ${GROQ_MODELS.length} modèle(s)`);
   } catch (e) {
     console.warn('[COMEO] Erreur chargement config serveur :', e.message);
     aiServiceAvailable = false;
@@ -436,10 +448,17 @@ async function callGroqQueued(messages, systemPrompt, maxTokens = 6000, temperat
 
         if (status === 429) {
           keyErrors.push({ keyNum: keyIdx + 1, code: 429, detail: 'Quota dépassé (rate limit)' });
-          console.warn(`[COMEO Queue] ${keyShort} saturée (429) → essai Gemini en fallback`);
+          console.warn(`[COMEO Queue] ${keyShort} saturée (429) → essai Groq direct puis Gemini en fallback`);
           releaseGroqKey(keyIdx);
-          
-          // 🔄 Basculer sur Gemini si OpenRouter est saturé
+
+          // 🔄 Basculer sur Groq natif si OpenRouter est saturé
+          const groqDirectResult = await callGroqDirect(messages, systemPrompt, maxTokens, temperature);
+          if (!groqDirectResult.error) {
+            console.log(`[COMEO] ✅ Fallback Groq direct réussi`);
+            return groqDirectResult;
+          }
+
+          // 🔄 Sinon basculer sur Gemini
           const geminiResult = await callGemini(messages, systemPrompt, maxTokens, temperature);
           if (!geminiResult.error) {
             console.log(`[COMEO] ✅ Fallback Gemini réussi`);
@@ -457,7 +476,7 @@ async function callGroqQueued(messages, systemPrompt, maxTokens = 6000, temperat
           }
           if (!found) {
             const detail = keyErrors.map(e => `clé ${e.keyNum} : ${e.detail}`).join(' · ');
-            return { error: 'all_rate_limited', msg: `⚠️ OpenRouter saturé et Gemini indisponible.\n${detail}\n\nVeuillez patienter quelques instants et réessayez.` };
+            return { error: 'all_rate_limited', msg: `⚠️ OpenRouter saturé, Groq direct et Gemini indisponibles.\n${detail}\n\nVeuillez patienter quelques instants et réessayez.` };
           }
           continue;
         }
@@ -495,6 +514,47 @@ async function callGroqQueued(messages, systemPrompt, maxTokens = 6000, temperat
   } finally {
     if (keyIdx !== undefined && groqKeyBusy[keyIdx]) releaseGroqKey(keyIdx);
   }
+}
+
+/**
+ * Appel Groq natif (api.groq.com) — fallback intermédiaire si OpenRouter est saturé,
+ * essayé avant Gemini car généralement plus rapide.
+ */
+async function callGroqDirect(messages, systemPrompt, maxTokens = 6000, temperature = 0.02) {
+  if (GROQ_DIRECT_KEYS.length === 0) {
+    return { error: 'no_groq_direct', msg: '⚠️ Clé Groq directe non configurée.' };
+  }
+  const model = GROQ_MODELS[0] || 'llama-3.3-70b-versatile';
+
+  for (let i = 0; i < GROQ_DIRECT_KEYS.length; i++) {
+    try {
+      console.log(`[COMEO Fallback] 🔄 Essai Groq direct clé ${i + 1}...`);
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${GROQ_DIRECT_KEYS[i]}`,
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: maxTokens,
+          temperature,
+          top_p: 0.95,
+          messages: [{ role: 'system', content: systemPrompt }, ...messages],
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log(`[COMEO Fallback] ✅ Groq direct OK — clé ${i + 1}, modèle ${model}`);
+        return { data, provider: 'groq_direct' };
+      }
+      console.warn(`[COMEO Fallback] Groq direct clé ${i + 1} — erreur HTTP ${response.status}`);
+    } catch (e) {
+      console.warn(`[COMEO Fallback] Groq direct clé ${i + 1} — exception : ${e.message}`);
+    }
+  }
+  return { error: 'groq_direct_failed', msg: '⚠️ Toutes les clés Groq directes ont échoué.' };
 }
 
 /**
@@ -7866,8 +7926,8 @@ function updateExportOptions() {
 
 // ══════════════════════════════════════════
 // CONFIGURATION SERVEUR — Les clés API ne sont plus en dur ici.
-// Elles sont chargées depuis Firestore (server_config/groq_keys et
-// server_config/gemini_keys) par loadServerConfig(), déclarée plus haut (ligne ~113).
+// Elles sont chargées depuis Firestore (server_config/openrouter_keys,
+// server_config/groq_keys et server_config/gemini_keys) par loadServerConfig(), déclarée plus haut (ligne ~119).
 // ══════════════════════════════════════════
 
 // ══ API PUBLIQUE — Gestion des clés OpenRouter depuis CC.html ══
@@ -7879,16 +7939,17 @@ function updateExportOptions() {
  */
 window.setGroqKeysFromCC = function(keys, models) {
   GROQ_API_KEYS = (keys || []).filter(Boolean);
+  OPENROUTER_KEYS = GROQ_API_KEYS;
   groqKeyBusy = new Array(GROQ_API_KEYS.length).fill(false);
   if (models && models.length > 0) GROQ_MODELS = models;
   aiServiceAvailable = GROQ_API_KEYS.length > 0;
   updateServiceAvailabilityUI();
-  console.log(`[COMEO CC] ${GROQ_API_KEYS.length} clé(s) Groq chargée(s) depuis CC.html`);
-  // Sauvegarder dans Firestore pour persistance
+  console.log(`[COMEO CC] ${GROQ_API_KEYS.length} clé(s) OpenRouter chargée(s) depuis CC.html`);
+  // Sauvegarder dans Firestore pour persistance (document openrouter_keys, pas groq_keys)
   if (window._fbReady) {
     const entries = GROQ_API_KEYS.map((v, i) => ({ id: i + 1, value: v }));
-    window._fbSetDoc(window._fbDoc(window._db, 'server_config', 'groq_keys'), { keys: entries }, { merge: false })
-      .then(() => console.log('[COMEO CC] Clés sauvegardées dans Firestore'))
+    window._fbSetDoc(window._fbDoc(window._db, 'server_config', 'openrouter_keys'), { keys: entries }, { merge: false })
+      .then(() => console.log('[COMEO CC] Clés OpenRouter sauvegardées dans Firestore'))
       .catch((e) => console.warn('[COMEO CC] Erreur sauvegarde Firestore:', e.message));
     if (models && models.length > 0) {
       window._fbSetDoc(window._fbDoc(window._db, 'server_config', 'models'), { list: models }, { merge: false }).catch(() => {});
