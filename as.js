@@ -263,9 +263,24 @@ const COMEO_SERVICE_MSG = 'Veuillez patienter quelques instants ou revenez plus 
 let aiServiceAvailable = true;
 let subscriptionCheckInterval = null;
 
+const OWNER_WHATSAPP_NUMBER = '2250508463003';
+
 function getWavePaymentUrl() {
   const p = ['https://pay.wave.com/m/', 'M_ci_iqMcg8KwRE-W', '/c/ci/?amount=', String(WAVE_AMOUNT_FCFA)];
   return p.join('');
+}
+
+// ── Construit le message WhatsApp de réabonnement envoyé au propriétaire ──
+function buildReabonnementWhatsAppUrl() {
+  const company = currentProfile?.company || '';
+  const email = currentProfile?.email || '';
+  const lignes = [
+    `Bonjour, je souhaite renouveler mon abonnement COMEO AI Pro (${WAVE_AMOUNT_FCFA.toLocaleString('fr-FR')} FCFA / mois).`,
+    company ? `Entreprise : ${company}` : '',
+    email ? `Email : ${email}` : '',
+  ].filter(Boolean);
+  const message = encodeURIComponent(lignes.join('\n'));
+  return `https://wa.me/${OWNER_WHATSAPP_NUMBER}?text=${message}`;
 }
 
 async function sha256Hex(text) {
@@ -759,7 +774,11 @@ async function claimWavePayment() {
 }
 
 function openWavePayment() {
-  window.open(getWavePaymentUrl(), '_blank', 'noopener,noreferrer');
+  openWhatsAppReabonnement();
+}
+
+function openWhatsAppReabonnement() {
+  window.open(buildReabonnementWhatsAppUrl(), '_blank', 'noopener,noreferrer');
 }
 
 // ══════════════════════════════════════════
@@ -2716,6 +2735,7 @@ async function doLogin() {
     currentProfile = { ...snap.data(), id: uid };
     conversationHistory = [];
     await loadApp();
+    playWelcomeSound();
   } catch (e) {
     const msgs = {
       'auth/user-not-found': 'Aucun compte avec cet email.',
@@ -3413,6 +3433,7 @@ function showSaisieNotif(libelle, count) {
       ? `${count} écritures liées préparées. Cliquez "Tout enregistrer" pour les grouper.`
       : `"${libelle || 'Écriture'}" — Vérifiez et enregistrez.`;
   notif.classList.add('show');
+  playAiNotificationSound();
   setTimeout(() => notif.classList.remove('show'), 15000);
 }
 function hideSaisieNotif() {
@@ -5061,6 +5082,7 @@ function appendMsg(context, role, text) {
   d.innerHTML = `<div class="msg-av">${role === 'ai' ? 'CA' : 'U'}</div><div class="msg-body">${fmt(text)}</div>`;
   c.appendChild(d);
   c.scrollTop = c.scrollHeight;
+  if (role === 'ai') playAiNotificationSound();
 }
 function appendTyping(context) {
   const id = 't' + Date.now();
@@ -7198,6 +7220,60 @@ window.closeRobotLinkOverlay = closeRobotLinkOverlay;
 window.toggleRobotMic = toggleRobotMic;
 window.initRobotMicHold = initRobotMicHold;
 // ══════════════════════════════════════════
+// SONS — Notification IA & Bienvenue connexion
+// ══════════════════════════════════════════
+let __comeoAudioCtx = null;
+function getComeoAudioCtx() {
+  try {
+    if (!__comeoAudioCtx) {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return null;
+      __comeoAudioCtx = new Ctx();
+    }
+    if (__comeoAudioCtx.state === 'suspended') __comeoAudioCtx.resume().catch(() => {});
+    return __comeoAudioCtx;
+  } catch (e) {
+    return null;
+  }
+}
+function playTone(freq, startTime, duration, ctx, gainPeak = 0.16) {
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = 'sine';
+  osc.frequency.value = freq;
+  gain.gain.setValueAtTime(0.0001, startTime);
+  gain.gain.exponentialRampToValueAtTime(gainPeak, startTime + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(startTime);
+  osc.stop(startTime + duration + 0.02);
+}
+// Son court joué chaque fois que COMEO AI livre un résultat
+function playAiNotificationSound() {
+  try {
+    const ctx = getComeoAudioCtx();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    playTone(880, t, 0.09, ctx, 0.14);
+    playTone(1320, t + 0.09, 0.12, ctx, 0.12);
+  } catch (e) {}
+}
+// Son de bienvenue joué à la connexion réussie sur la plateforme
+function playWelcomeSound() {
+  try {
+    const ctx = getComeoAudioCtx();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    playTone(523.25, t, 0.14, ctx, 0.15);
+    playTone(659.25, t + 0.12, 0.14, ctx, 0.15);
+    playTone(783.99, t + 0.24, 0.22, ctx, 0.16);
+  } catch (e) {}
+}
+window.playAiNotificationSound = playAiNotificationSound;
+window.playWelcomeSound = playWelcomeSound;
+
+// ══════════════════════════════════════════
 // TOAST
 // ══════════════════════════════════════════
 function toast(message, type = 'info') {
@@ -7874,7 +7950,7 @@ function renderFactures() {
       <td style="display:flex;gap:4px;flex-wrap:wrap">
         <button class="btn-action" onclick="exportFacturePDF(${f.id})">📄 PDF</button>
         <button class="btn-action" onclick="exportFactureWord(${f.id})">📝 Word</button>
-        <button class="btn-action" onclick="exportFactureExcel(${f.id})">📊 Excel</button>
+        <button class="btn-action" onclick="exportFactureExcel(${f.id})">📊 CSV</button>
         ${f.statut !== 'payee' && f.statut !== 'annulee' ? `<button class="btn-action" onclick="marquerPayee(${f.id})">✓ Payée</button>` : ''}
         <button class="btn-action" onclick="openFactureModal(${f.id})">✎</button>
         <button class="btn-action danger" onclick="supprimerFacture(${f.id})">✕</button>
@@ -8313,7 +8389,7 @@ function exportFactureExcel(id) {
   a.href = URL.createObjectURL(blob);
   a.download = `${fac.type.toUpperCase()}_${fac.numero}.xls`;
   a.click();
-  toast('✓ Excel généré : ' + fac.numero, 'success');
+  toast('✓ CSV généré : ' + fac.numero, 'success');
 }
 
 function exportFactureList() {
@@ -8628,7 +8704,7 @@ function exportExcelAvance() {
   a.href = URL.createObjectURL(blob);
   a.download = `COMEO_${docType}_${company.replace(/\s+/g, '_')}_${yr}.csv`;
   a.click();
-  toast('✓ Excel (CSV) exporté', 'success');
+  toast('✓ CSV exporté', 'success');
 }
 
 // ══════════════════════════════════════════
@@ -10183,6 +10259,7 @@ async function doForgotPassword() {
 }
 window.doForgotPassword = doForgotPassword;
 window.openWavePayment = openWavePayment;
+window.openWhatsAppReabonnement = openWhatsAppReabonnement;
 window.claimWavePayment = claimWavePayment;
 window.activatePremiumWithCode = activatePremiumWithCode;
 // ══════════════════════════════════════════
@@ -11910,23 +11987,20 @@ function exportHistoriqueAppels() {
   } catch(e) { toast('Erreur: ' + e.message, 'error'); }
 }
 
-function confirmWavePaymentManual() {
-  const name = (document.getElementById('wavePayerName')?.value||'').trim();
-  const number = (document.getElementById('wavePayerNumber')?.value||'').trim();
+function confirmerDemandeReabonnement() {
   const err = document.getElementById('paymentFormErr');
-  if (!name || !number) {
-    if (err) { err.textContent = 'Veuillez remplir votre nom et numéro Wave.'; err.classList.add('show'); }
-    return;
-  }
   if (err) err.classList.remove('show');
   window._fbSetDoc && window._fbSetDoc(window._fbDoc(window._db, 'profiles', currentProfile.id), {
     paymentPendingAt: new Date().toISOString(),
     subscriptionStatus: 'pending_payment',
-    wavePayerName: name,
-    wavePayerNumber: number,
+    reabonnementVia: 'whatsapp',
   }, { merge: true }).catch(()=>{});
   document.getElementById('paywallPaymentForm').style.display = 'none';
   document.getElementById('paywallSuccessPanel').style.display = 'block';
+}
+// Ancien nom conservé par compatibilité (formulaires/scripts existants)
+function confirmWavePaymentManual() {
+  confirmerDemandeReabonnement();
 }
 
 // ══════════════════════════════════════════
@@ -11950,7 +12024,7 @@ const __globalExports = [
   'openClientModal','openCollabModal','openDeclTaxeModal','openDevisModal',
   'openEffetModal','openExportModal','openFactureModal','openFournisseurModal',
   'openImmobModal','openImportModal','openNouveau3DCall','openPaieModal','openRobot','openSocieteModal',
-  'openStockModal','openWavePayment','ouvrirAppelVideo','ouvrirNouvelExercice',
+  'openStockModal','openWavePayment','openWhatsAppReabonnement','confirmerDemandeReabonnement','ouvrirAppelVideo','ouvrirNouvelExercice',
   'previewFacturePDF','rejoindreCollab','renderBalance','renderBilan','renderClients',
   'renderFactures','renderFournisseurs','renderGrandLivre','renderJournal',
   'renderPlanComptable','resetBalanceFiltre','resetFactureFiltre','resetGLFiltre',
@@ -12027,7 +12101,7 @@ const __scope = { addFacLigne, addLigne, afficherDeclaration, afficherLettrage,
 Object.assign(window, __scope);
 
 // Functions that may not exist yet — safe optional exports
-const __optional = ['confirmWavePaymentManual','exportDeclFiscalePDF','openDeclTaxeModal',
+const __optional = ['confirmWavePaymentManual','confirmerDemandeReabonnement','openWhatsAppReabonnement','exportDeclFiscalePDF','openDeclTaxeModal',
   'openNouveau3DCall','exportHistoriqueAppels','terminerAppel','previewFacturePDF',
   'autoSaveAllFromNotif','hideSaisieNotif',
   'updateBudgetAccountSuggest','exportAuditPDF','exportBalanceAgeePDF',
