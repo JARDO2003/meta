@@ -40,7 +40,7 @@
   <div class="af-field"><label class="af-label">Mot de passe (min 6 car.)</label><input class="af-input" type="password" id="r-pass" placeholder="Minimum 6 caractères"></div>
   <div class="auth-err" id="r-err"></div>
   <button class="auth-btn" onclick="doRegister()">✓ Créer mon profil</button>
-  <p class="auth-trial-note">🎁 12 heures d'essai gratuit · puis 15&nbsp;000 FCFA/mois via Wave</p>
+  <p class="auth-trial-note">🎁 12 heures d'essai gratuit · puis 15&nbsp;000 FCFA/mois (réabonnement via WhatsApp)</p>
 </div>
   </div>
 </div>
@@ -56,19 +56,17 @@
       <p class="premium-desc" id="paywallTrialInfo">Essai gratuit 12 h à la création du compte, puis abonnement requis.</p>
       <div class="premium-price">15&nbsp;000 <span>FCFA / mois</span></div>
 
-      <p class="premium-step-label">Étape 1 — Payer avec Wave</p>
-      <button type="button" class="premium-wave-btn" onclick="openWavePayment()">
-        <span class="wave-icon">W</span> Payer 15 000 FCFA avec Wave
+      <p class="premium-step-label">Étape 1 — Contacter le propriétaire sur WhatsApp</p>
+      <button type="button" class="premium-wave-btn" onclick="openWhatsAppReabonnement()">
+        <span class="wave-icon">💬</span> Payer 15 000 FCFA via WhatsApp
       </button>
-      <p class="premium-wave-hint" id="wavePayHint" style="display:none">✅ Wave ouvert — effectuez le paiement puis revenez ici.</p>
+      <p class="premium-wave-hint" id="wavePayHint" style="display:none">✅ WhatsApp ouvert — envoyez votre message puis revenez ici.</p>
 
-      <div class="premium-divider">Étape 2 — Confirmer votre paiement</div>
-      <p class="premium-form-desc">Remplissez exactement les informations utilisées sur Wave :</p>
-      <input type="text" id="wavePayerName" class="premium-code-input" placeholder="Nom complet (comme sur Wave)" autocomplete="name" maxlength="80">
-      <input type="tel" id="wavePayerNumber" class="premium-code-input" placeholder="Numéro Wave (ex: 07 XX XX XX XX)" autocomplete="tel" maxlength="20">
+      <div class="premium-divider">Étape 2 — Confirmer votre demande</div>
+      <p class="premium-form-desc">Une fois votre message envoyé sur WhatsApp au propriétaire, confirmez votre demande de réabonnement :</p>
       <div class="auth-err" id="paymentFormErr"></div>
-      <button type="button" class="premium-activate-btn" id="confirmWaveBtn" onclick="confirmWavePaymentManual()">
-        ✓ Confirmer mon paiement
+      <button type="button" class="premium-activate-btn" id="confirmWaveBtn" onclick="confirmerDemandeReabonnement()">
+        ✓ J'ai envoyé ma demande sur WhatsApp
       </button>
       <button type="button" class="premium-logout-btn" onclick="doLogout()">Se déconnecter</button>
     </div>
@@ -79,12 +77,12 @@
       <h2 class="premium-title">Merci !</h2>
       <p class="paywall-success-text">
         Votre demande a bien été enregistrée.<br><br>
-        <strong>Veuillez patienter 12 à 24 heures</strong> pendant que nous vérifions votre paiement Wave.<br><br>
+        <strong>Veuillez patienter 12 à 24 heures</strong> pendant que nous vérifions votre réabonnement avec le propriétaire sur WhatsApp.<br><br>
         Vous recevrez l'accès Premium dès validation par notre équipe.
       </p>
       <div class="paywall-success-box">
         <span>⏰</span> Délai habituel : 12 h – 24 h<br>
-        <span>📱</span> Conservez votre reçu Wave<br>
+        <span>💬</span> Conservez votre conversation WhatsApp comme preuve<br>
         <span>✨</span> Merci pour votre confiance !
       </div>
       <button type="button" class="premium-logout-btn" onclick="doLogout()">Fermer et se déconnecter</button>
@@ -152,8 +150,8 @@
           <div class="opt-sub">Éditable .doc</div>
         </div>
         <div class="export-opt" id="opt-excel" onclick="selectExport('excel')">
-          <div class="opt-icon">📊</div><div class="opt-label">Excel</div>
-          <div class="opt-sub">Analyse .xlsx CSV</div>
+          <div class="opt-icon">📊</div><div class="opt-label">CSV</div>
+          <div class="opt-sub">Fichier .csv (tableur)</div>
         </div>
       </div>
     </div>
